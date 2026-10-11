@@ -1,0 +1,570 @@
+{
+  "version": "stage1-core-v1",
+  "status": "Proposed interface contract; prototype has no network calls",
+  "report": "ELEC5620 Stage One Report(1).pdf",
+  "scope": "AR01–AR13 and UC01–UC10; authentication allowed by user",
+  "api_prefix": "/api/v1",
+  "operation_count": 20,
+  "operations": [
+    {
+      "method": "POST",
+      "path": "/auth/register",
+      "requirement": "用户允许的登录 / 注册",
+      "request": "{name,email,password}; public registration always creates Student",
+      "response": "{session,user:{id,name,role}}"
+    },
+    {
+      "method": "POST",
+      "path": "/auth/login",
+      "requirement": "NFR5 身份与角色权限",
+      "request": "{email,password}",
+      "response": "{session,user:{id,name,role}}"
+    },
+    {
+      "method": "GET",
+      "path": "/workspace",
+      "requirement": "AR01–AR10、AR12；按角色复用基础记录",
+      "request": "student_id? (assigned teacher only); cursor?; each list is bounded",
+      "response": "Workspace envelope; server selects Student / Teacher / Founder shape"
+    },
+    {
+      "method": "POST",
+      "path": "/requests",
+      "requirement": "UC01、UC03–UC08；Coordinator 与所需 Agent 路由",
+      "request": "{type,student_id?,context_id?,input}; type is one of the required actions below",
+      "response": "{id,type,status,phase,result,error?}; result contains only the required domain record"
+    },
+    {
+      "method": "GET",
+      "path": "/requests/{id}",
+      "requirement": "AR11、AR13；等待、恢复、升级结果",
+      "request": "request id; caller must own or be assigned to the request",
+      "response": "Same request envelope; no extra per-page task endpoint"
+    },
+    {
+      "method": "POST",
+      "path": "/assessments",
+      "requirement": "UC02、UC05、UC06 教师定向测评",
+      "request": "{student_id,kind:initial|milestone|directed,focus?}; teacher role required for directed",
+      "response": "{id,kind,status,answered,max_items,current_item,result?}"
+    },
+    {
+      "method": "GET",
+      "path": "/assessments/{id}",
+      "requirement": "UC02 恢复已保存的测评",
+      "request": "assessment id; authorized learner / teacher",
+      "response": "Same assessment session; result is the proficiency record"
+    },
+    {
+      "method": "POST",
+      "path": "/assessments/{id}/answers",
+      "requirement": "UC02 自适应出题与保存答案",
+      "request": "{item_id,answer}; duplicate item submission is idempotent",
+      "response": "Same assessment session with next item or provisional / confirmed result"
+    },
+    {
+      "method": "GET",
+      "path": "/reviews/{id}",
+      "requirement": "UC03、UC06–UC08、AR13 所需的人类审核",
+      "request": "review id; assigned teacher only",
+      "response": "{review,subject,evidence}; subject is the existing plan, assessment or interaction"
+    },
+    {
+      "method": "POST",
+      "path": "/reviews/{id}/decision",
+      "requirement": "教师确认、修正、回答；重大变更记录依据",
+      "request": "{action:approve|request_changes|confirm_result|answer,note?,corrected_level?}; evidence required for override",
+      "response": "{review,updated_subject}; plan approval activates the approved version once"
+    },
+    {
+      "method": "PATCH",
+      "path": "/students/{id}/observation",
+      "requirement": "UC06 教师观察记录",
+      "request": "{note}; assigned teacher only",
+      "response": "{note,updated_at,teacher_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/teachers/me/availability",
+      "requirement": "UC03、SM4 声明教师时间",
+      "request": "{timezone,availability:[{day,start,end}]}",
+      "response": "Same availability record; reject incompatible booked-slot changes"
+    },
+    {
+      "method": "PATCH",
+      "path": "/lessons/{id}",
+      "requirement": "SM4 课后出席与教师意见",
+      "request": "{attendance?,feedback?}; assigned teacher only",
+      "response": "Same lesson record; schedule changes go through Coordinator"
+    },
+    {
+      "method": "GET",
+      "path": "/materials/{id}",
+      "requirement": "UC04、UC08 已批准资料 / 教师草稿",
+      "request": "material id; students only see approved and authorized content",
+      "response": "{id,title,locator,status,lesson_id,content,source_refs}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/materials/{id}",
+      "requirement": "UC08 教师编辑、批准后用于课程",
+      "request": "{content,action:save|approve}; assigned teacher only",
+      "response": "Same material; approved lesson material id added to the existing lesson"
+    },
+    {
+      "method": "GET",
+      "path": "/cases/{id}",
+      "requirement": "UC09–UC10 业务异常或技术事故依据",
+      "request": "case id; Founder / permitted Technical Manager",
+      "response": "{id,kind,status,subject,trigger,diagnosis,evidence,proposal_id,decision,verification}"
+    },
+    {
+      "method": "POST",
+      "path": "/cases/{id}/decision",
+      "requirement": "UC09 未解决业务异常的人类介入",
+      "request": "{action:widen_match|request_teacher|resolve,note}; Founder only",
+      "response": "Same case + audit entry; no new recruitment or ticketing subsystem"
+    },
+    {
+      "method": "POST",
+      "path": "/agents/{id}/decision",
+      "requirement": "UC09 停止异常 / 要求纠正",
+      "request": "{action:pause|request_correction,note,case_id?}; Founder only",
+      "response": "Updated agent status / correction request + audit entry"
+    },
+    {
+      "method": "GET",
+      "path": "/proposals/{id}",
+      "requirement": "UC09–UC10、AR12 更新、恢复、记录和权限变更",
+      "request": "proposal id; Founder only",
+      "response": "{id,type,title,case_id,status,evidence,before,after,validation,rollback,decision,execution}"
+    },
+    {
+      "method": "POST",
+      "path": "/proposals/{id}/decision",
+      "requirement": "受控更新与恢复的 Founder 审批",
+      "request": "{action:approve|reject,note?}; reject requires reason; approval is version-bound",
+      "response": "Same proposal + audit entries; Technical Manager executes only the approved change, verifies it, then closes the related incident"
+    }
+  ],
+  "request_actions": {
+    "collect_goal": {
+      "actor": "Student",
+      "input": [
+        "goal_text",
+        "focus_skills",
+        "self_level",
+        "weekly_hours",
+        "timezone",
+        "availability"
+      ],
+      "result": "goal summary + focus skills + follow-up question, if needed",
+      "requirements": [
+        "AR01",
+        "UC01"
+      ]
+    },
+    "confirm_goal": {
+      "actor": "Student",
+      "input": [
+        "summary_request_id",
+        "confirmed_summary"
+      ],
+      "result": "saved profile; next step is initial assessment or existing-plan reuse",
+      "requirements": [
+        "AR01",
+        "UC01"
+      ]
+    },
+    "explain": {
+      "actor": "Student",
+      "input": [
+        "question"
+      ],
+      "result": "answer + confidence + source refs, or teacher escalation",
+      "requirements": [
+        "AR04",
+        "AR11",
+        "AR13",
+        "UC04"
+      ]
+    },
+    "resources": {
+      "actor": "Student",
+      "input": [
+        "question?"
+      ],
+      "result": "authorized current-stage material refs",
+      "requirements": [
+        "AR04",
+        "UC04"
+      ]
+    },
+    "practice": {
+      "actor": "Student",
+      "input": [
+        "focus?"
+      ],
+      "result": "light exercise + item id",
+      "requirements": [
+        "AR05",
+        "UC05"
+      ]
+    },
+    "practice_answer": {
+      "actor": "Student",
+      "input": [
+        "practice_request_id",
+        "item_id",
+        "answer"
+      ],
+      "result": "instant feedback; no formal plan change",
+      "requirements": [
+        "AR05",
+        "UC05"
+      ]
+    },
+    "complete_material": {
+      "actor": "Student",
+      "input": [
+        "material_id"
+      ],
+      "result": "own learning-history material completion time; no content or approval change",
+      "requirements": [
+        "AR05",
+        "UC04"
+      ]
+    },
+    "review_progress": {
+      "actor": "Teacher",
+      "input": [
+        "student_id"
+      ],
+      "result": "analysis derived from existing confirmed results, plan, lessons and observations",
+      "requirements": [
+        "AR06",
+        "UC06"
+      ]
+    },
+    "recommend_plan": {
+      "actor": "Teacher",
+      "input": [
+        "student_id"
+      ],
+      "result": "plan recommendations + supporting evidence",
+      "requirements": [
+        "AR07",
+        "UC07"
+      ]
+    },
+    "revise_plan": {
+      "actor": "Student|Teacher",
+      "input": [
+        "student_id?",
+        "reason",
+        "requested_change"
+      ],
+      "result": "draft revision + teacher review; old plan stays active",
+      "requirements": [
+        "AR03",
+        "AR07",
+        "UC03",
+        "UC07"
+      ]
+    },
+    "reschedule": {
+      "actor": "Student",
+      "input": [
+        "lesson_id",
+        "requested_time"
+      ],
+      "result": "compatible proposed slot + rationale; existing booking stays until confirmation",
+      "requirements": [
+        "AR03",
+        "UC03",
+        "SM3",
+        "SM4"
+      ]
+    },
+    "confirm_slot": {
+      "actor": "Student",
+      "input": [
+        "slot_request_id",
+        "slot_id"
+      ],
+      "result": "lesson reservation after a server conflict recheck",
+      "requirements": [
+        "AR03",
+        "SM4"
+      ]
+    },
+    "replace_teacher": {
+      "actor": "Student",
+      "input": [
+        "reason"
+      ],
+      "result": "matching proposal; no overlap / teacher availability escalates to Founder",
+      "requirements": [
+        "AR03",
+        "UC03",
+        "SM3"
+      ]
+    },
+    "lesson_briefing": {
+      "actor": "Teacher",
+      "input": [
+        "lesson_id"
+      ],
+      "result": "briefing from plan, weaknesses, questions, materials and teacher comments",
+      "requirements": [
+        "AR08",
+        "UC08"
+      ]
+    },
+    "generate_material": {
+      "actor": "Teacher",
+      "input": [
+        "lesson_id",
+        "topic",
+        "level",
+        "type",
+        "guidance?"
+      ],
+      "result": "editable material draft + source refs; teacher approval required",
+      "requirements": [
+        "AR08",
+        "UC08"
+      ]
+    }
+  },
+  "record_fields": {
+    "User": [
+      "id",
+      "name",
+      "role"
+    ],
+    "LearningProfile": [
+      "goal_text",
+      "goal_summary",
+      "focus_skills",
+      "target_level",
+      "self_level",
+      "weekly_hours",
+      "timezone",
+      "availability"
+    ],
+    "ProficiencyRecord": [
+      "id",
+      "kind",
+      "status",
+      "created_at",
+      "level",
+      "confidence",
+      "strengths",
+      "weaknesses",
+      "goal_gap",
+      "feedback",
+      "review_note",
+      "requested_focus"
+    ],
+    "LearningPlan": [
+      "id",
+      "version",
+      "status",
+      "stage_index",
+      "teacher",
+      "weekly_hours",
+      "stages",
+      "reason",
+      "review_id",
+      "approved_at"
+    ],
+    "PlanStage": [
+      "title",
+      "course_ref",
+      "start_week",
+      "end_week",
+      "topics",
+      "milestone",
+      "status"
+    ],
+    "Lesson": [
+      "id",
+      "student_id",
+      "title",
+      "starts_at",
+      "ends_at",
+      "teacher",
+      "stage_index",
+      "status",
+      "classroom_url",
+      "attendance",
+      "feedback",
+      "material_ids"
+    ],
+    "LearningMaterialReference": [
+      "id",
+      "title",
+      "locator",
+      "completed_at"
+    ],
+    "TeacherObservation": [
+      "note",
+      "updated_at",
+      "teacher_id"
+    ],
+    "Material": [
+      "id",
+      "title",
+      "locator",
+      "status",
+      "lesson_id",
+      "content",
+      "source_refs"
+    ],
+    "LearningInteraction": [
+      "id",
+      "student_id",
+      "type",
+      "question",
+      "answer",
+      "feedback",
+      "status",
+      "confidence",
+      "source_refs",
+      "sent_at",
+      "escalation"
+    ],
+    "Review": [
+      "id",
+      "kind",
+      "student_id",
+      "subject_id",
+      "status",
+      "trigger",
+      "decision"
+    ],
+    "Case": [
+      "id",
+      "kind",
+      "status",
+      "subject",
+      "trigger",
+      "diagnosis",
+      "evidence",
+      "proposal_id",
+      "decision",
+      "verification"
+    ],
+    "Proposal": [
+      "id",
+      "type",
+      "title",
+      "case_id",
+      "status",
+      "evidence",
+      "before",
+      "after",
+      "validation",
+      "rollback",
+      "decision",
+      "execution"
+    ],
+    "Agent": [
+      "id",
+      "name",
+      "status",
+      "latest_task"
+    ],
+    "OperationalLog": [
+      "id",
+      "time",
+      "agent_id",
+      "event",
+      "severity",
+      "task_status",
+      "confidence",
+      "escalated"
+    ],
+    "Audit": [
+      "id",
+      "time",
+      "actor_role",
+      "actor_name",
+      "subject_id",
+      "action",
+      "result"
+    ]
+  },
+  "workspace_shapes": {
+    "Student": [
+      "user",
+      "profile",
+      "assessments[]",
+      "plan",
+      "pending_plan",
+      "lessons[]",
+      "materials[] (references only)",
+      "interactions[] (recent; own only)",
+      "next_cursor?"
+    ],
+    "Teacher": [
+      "user",
+      "availability[]",
+      "students[] (id,name,goal,level,plan_id,stage_index)",
+      "lessons[]",
+      "reviews[] (references)",
+      "next_cursor?"
+    ],
+    "Teacher student detail": "GET /workspace?student_id=… returns the authorized Student shape plus teacher observation; only assigned students",
+    "Founder": [
+      "user",
+      "agents[]",
+      "services[]",
+      "logs[] (bounded operational summaries)",
+      "warnings[]",
+      "cases[] (references)",
+      "proposals[] (references)",
+      "audit[] (recent)",
+      "next_cursor?"
+    ]
+  },
+  "payload_limits": {
+    "initial_list_limit": 20,
+    "max_list_limit": 50,
+    "material_content": "Fetched only on open; not copied into every card or workspace response",
+    "assessment_answers": "Do not return full answer history in workspace; retrieve only the authorized assessment session",
+    "student_record_scope": "Own / assigned records only; Founder gets operational summaries with no student chat, answers, goals or lesson notes",
+    "pagination": "Use the same /workspace cursor and role envelope; display calculations apply only to loaded records, with that scope labelled"
+  },
+  "frontend_only": [
+    "Metric counts calculated from loaded records",
+    "Calendar layout from lesson timestamps and declared availability; server remains authoritative for reservations",
+    "Progress stages drawn from plan stage status; no invented rubric scores",
+    "Filters, sorting, tabs, initial avatars and date formatting",
+    "Day / night themes, hover light, AI animations and reduced motion",
+    "Multiple cards reuse the same cached records; no card-specific API",
+    "Entry links and suggested next steps are derived from the current workflow state"
+  ],
+  "not_in_scope": [
+    "Teacher assignment CRUD, submission versions, grading and resubmission workflows",
+    "Generated periodic learning reports and downloadable report service",
+    "Notifications, reminders, notification unread counts and read-state APIs",
+    "Payments, invoices, learning partners and pronunciation scoring",
+    "Cost / token dashboards or invented activity analytics",
+    "Global search service, multiple concurrent learning-direction management and recruitment administration",
+    "Manual run / retry buttons that add an unnecessary public infrastructure API"
+  ],
+  "state_rules": [
+    "Low-confidence results remain provisional until the assigned teacher confirms or corrects them.",
+    "An initial or major revised plan activates after one teacher approval; no second student plan approval.",
+    "Light practice records feedback without changing a formal assessment or learning plan.",
+    "A proposed time is reserved only after the learner confirms that exact slot and the server rechecks conflicts.",
+    "Only teacher-approved material is available to students for lessons.",
+    "Critical / unknown / failed recovery and controlled corpus, index, configuration, permission or archive changes require Founder approval.",
+    "Technical Manager may perform only predefined low-risk reversible recovery without a new Founder decision.",
+    "Approval, execution and verification are separate auditable events; failed verification keeps the incident open.",
+    "All roles and record scopes are enforced by the backend, independent of visual page navigation."
+  ],
+  "implementation_note": "20 method/path operations expose only required workflows. The shared Coordinator route still contains 15 required business actions; grouping routes does not eliminate their backend work. UI richness does not add fields, tables or workflows to these records."
+}

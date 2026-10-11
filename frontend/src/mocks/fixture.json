@@ -1,0 +1,830 @@
+{
+  "fixture_version": "stage1-core-v5",
+  "reference_now": "2026-10-13T07:00:00Z",
+  "users": [
+    {
+      "id": "student-ivy",
+      "name": "Ivy Lin",
+      "email": "ivy.lin@example.com",
+      "role": "Student"
+    },
+    {
+      "id": "teacher-emily",
+      "name": "Emily Walker",
+      "email": "emily.walker@example.com",
+      "role": "Teacher"
+    },
+    {
+      "id": "founder-alex",
+      "name": "Alex Hu",
+      "email": "alex.hu@example.com",
+      "role": "Founder"
+    }
+  ],
+  "students": {
+    "student-ivy": {
+      "profile": {
+        "goal_text": "I want to study a Master’s degree in Philosophy overseas. I need help with academic reading, argument writing and seminar discussions.",
+        "goal_summary": "Postgraduate study in Philosophy",
+        "focus_skills": [
+          "Reading",
+          "Writing",
+          "Speaking"
+        ],
+        "target_level": "C1",
+        "self_level": "B2",
+        "weekly_hours": 6,
+        "timezone": "Australia/Sydney",
+        "availability": [
+          {
+            "day": "Tue",
+            "start": "18:00",
+            "end": "20:00"
+          },
+          {
+            "day": "Thu",
+            "start": "18:00",
+            "end": "20:00"
+          }
+        ]
+      },
+      "assessments": [
+        {
+          "id": "A-098",
+          "kind": "initial",
+          "status": "confirmed",
+          "created_at": "2026-09-16T08:00:00Z",
+          "level": "B2",
+          "confidence": 0.88,
+          "strengths": [
+            "Academic reading"
+          ],
+          "weaknesses": [
+            "Explicit evidence links"
+          ],
+          "goal_gap": "C1 academic argument and seminar fluency",
+          "feedback": "You identify the main idea clearly. Explain the significance of your evidence.",
+          "review_note": null,
+          "requested_focus": null
+        },
+        {
+          "id": "A-104",
+          "kind": "milestone",
+          "status": "pending_review",
+          "created_at": "2026-10-10T07:00:00Z",
+          "level": "B1–B2",
+          "confidence": 0.62,
+          "strengths": [
+            "Academic reading"
+          ],
+          "weaknesses": [
+            "Explicit evidence links"
+          ],
+          "goal_gap": "C1 academic argument and seminar fluency",
+          "feedback": "The current answers do not establish evidence-linking ability reliably.",
+          "review_note": null,
+          "requested_focus": "Evidence-to-claim connections"
+        }
+      ],
+      "plan": {
+        "id": "PL-019",
+        "version": 1,
+        "status": "active",
+        "stage_index": 1,
+        "teacher": {
+          "id": "teacher-emily",
+          "name": "Emily Walker"
+        },
+        "weekly_hours": 6,
+        "stages": [
+          {
+            "title": "Academic foundations",
+            "course_ref": "CAT-01",
+            "start_week": 1,
+            "end_week": 3,
+            "topics": [
+              "Organise ideas",
+              "Read academic texts"
+            ],
+            "milestone": "Identify a claim and its evidence.",
+            "status": "completed"
+          },
+          {
+            "title": "Argumentative writing",
+            "course_ref": "CAT-02",
+            "start_week": 4,
+            "end_week": 6,
+            "topics": [
+              "Evidence links",
+              "Paragraph structure"
+            ],
+            "milestone": "Explain how evidence supports a claim.",
+            "status": "current"
+          },
+          {
+            "title": "Critical reading",
+            "course_ref": "CAT-03",
+            "start_week": 7,
+            "end_week": 9,
+            "topics": [
+              "Compare arguments",
+              "Synthesise sources"
+            ],
+            "milestone": "Compare and synthesise two arguments.",
+            "status": "upcoming"
+          },
+          {
+            "title": "Seminar communication",
+            "course_ref": "CAT-04",
+            "start_week": 10,
+            "end_week": 12,
+            "topics": [
+              "Present ideas",
+              "Respond to questions"
+            ],
+            "milestone": "Present and defend a clear viewpoint.",
+            "status": "upcoming"
+          }
+        ],
+        "reason": "Confirmed B2 placement, postgraduate Philosophy goal, catalogue sequence and compatible teacher availability.",
+        "review_id": "RV-019",
+        "approved_at": "2026-09-16T09:00:00Z"
+      },
+      "pending_plan": {
+        "id": "PL-019",
+        "version": 2,
+        "status": "pending_review",
+        "stage_index": 1,
+        "teacher": {
+          "id": "teacher-emily",
+          "name": "Emily Walker"
+        },
+        "weekly_hours": 6,
+        "stages": [
+          {
+            "title": "Academic foundations",
+            "course_ref": "CAT-01",
+            "start_week": 1,
+            "end_week": 3,
+            "topics": [
+              "Organise ideas",
+              "Read academic texts"
+            ],
+            "milestone": "Identify a claim and its evidence.",
+            "status": "completed"
+          },
+          {
+            "title": "Argumentative writing",
+            "course_ref": "CAT-02",
+            "start_week": 4,
+            "end_week": 6,
+            "topics": [
+              "Evidence links",
+              "Paragraph structure",
+              "Guided evidence-linking practice"
+            ],
+            "milestone": "Explain how evidence supports a claim.",
+            "status": "current"
+          },
+          {
+            "title": "Critical reading",
+            "course_ref": "CAT-03",
+            "start_week": 7,
+            "end_week": 9,
+            "topics": [
+              "Compare arguments",
+              "Synthesise sources"
+            ],
+            "milestone": "Compare and synthesise two arguments.",
+            "status": "upcoming"
+          },
+          {
+            "title": "Seminar communication",
+            "course_ref": "CAT-04",
+            "start_week": 10,
+            "end_week": 12,
+            "topics": [
+              "Present ideas",
+              "Respond to questions"
+            ],
+            "milestone": "Present and defend a clear viewpoint.",
+            "status": "upcoming"
+          }
+        ],
+        "reason": "Teacher observation and provisional writing evidence suggest more guided evidence-linking practice. The current plan remains active pending approval.",
+        "review_id": "RV-019-v2",
+        "approved_at": null
+      },
+      "material_records": [
+        {
+          "material_id": "M-01",
+          "completed_at": "2026-10-12T05:30:00Z"
+        }
+      ],
+      "observation": "Ivy states a claim clearly. Next lesson: explain how a source supports it."
+    },
+    "student-sophia": {
+      "name": "Sophia Chen",
+      "profile": {
+        "goal_text": "I want to communicate clearly at work and prepare for interviews.",
+        "goal_summary": "Workplace English",
+        "focus_skills": [
+          "Reading",
+          "Writing",
+          "Speaking"
+        ],
+        "target_level": "B2",
+        "self_level": "B1",
+        "weekly_hours": 3,
+        "timezone": "Australia/Sydney",
+        "availability": [
+          {
+            "day": "Thu",
+            "start": "18:00",
+            "end": "19:00"
+          }
+        ]
+      },
+      "assessments": [
+        {
+          "id": "A-103",
+          "kind": "initial",
+          "status": "confirmed",
+          "created_at": "2026-09-16T08:00:00Z",
+          "level": "B1",
+          "confidence": 0.88,
+          "strengths": [
+            "Academic reading"
+          ],
+          "weaknesses": [
+            "Explicit evidence links"
+          ],
+          "goal_gap": "B2 workplace communication",
+          "feedback": "You identify the main idea clearly. Explain the significance of your evidence.",
+          "review_note": null,
+          "requested_focus": null
+        }
+      ],
+      "plan": null,
+      "pending_plan": {
+        "id": "PL-021",
+        "version": 1,
+        "status": "pending_review",
+        "stage_index": 0,
+        "teacher": {
+          "id": "teacher-emily",
+          "name": "Emily Walker"
+        },
+        "weekly_hours": 3,
+        "stages": [
+          {
+            "title": "Core communication",
+            "course_ref": "WORK-1",
+            "start_week": 1,
+            "end_week": 3,
+            "topics": [
+              "Everyday fluency"
+            ],
+            "milestone": "Explain an everyday work situation.",
+            "status": "upcoming"
+          },
+          {
+            "title": "Workplace vocabulary",
+            "course_ref": "WORK-2",
+            "start_week": 4,
+            "end_week": 6,
+            "topics": [
+              "Language for work"
+            ],
+            "milestone": "Apply vocabulary to a work scenario.",
+            "status": "upcoming"
+          },
+          {
+            "title": "Presentations",
+            "course_ref": "WORK-3",
+            "start_week": 7,
+            "end_week": 9,
+            "topics": [
+              "Structure an explanation"
+            ],
+            "milestone": "Deliver a short structured presentation.",
+            "status": "upcoming"
+          },
+          {
+            "title": "Interview confidence",
+            "course_ref": "WORK-4",
+            "start_week": 10,
+            "end_week": 12,
+            "topics": [
+              "Clear responses"
+            ],
+            "milestone": "Respond to follow-up questions.",
+            "status": "upcoming"
+          }
+        ],
+        "reason": "Confirmed B1 assessment, workplace English goal, course sequence and overlapping Thursday availability.",
+        "review_id": "RV-021",
+        "approved_at": null
+      },
+      "material_records": [],
+      "observation": ""
+    }
+  },
+  "teacher_availability": [
+    {
+      "day": "Tue",
+      "start": "18:00",
+      "end": "20:00"
+    },
+    {
+      "day": "Thu",
+      "start": "18:00",
+      "end": "20:00"
+    },
+    {
+      "day": "Sat",
+      "start": "17:00",
+      "end": "18:00"
+    }
+  ],
+  "lessons": [
+    {
+      "id": "L-016",
+      "student_id": "student-ivy",
+      "title": "Reading an academic argument",
+      "starts_at": "2026-10-12T06:00:00Z",
+      "ends_at": "2026-10-12T07:00:00Z",
+      "teacher": {
+        "id": "teacher-emily",
+        "name": "Emily Walker"
+      },
+      "stage_index": 1,
+      "status": "completed",
+      "classroom_url": null,
+      "attendance": "attended",
+      "feedback": "Your argument structure is improving. Next, make the evidence-to-claim connection more explicit.",
+      "material_ids": [
+        "M-01"
+      ]
+    },
+    {
+      "id": "L-018",
+      "student_id": "student-ivy",
+      "title": "Building an academic argument",
+      "starts_at": "2026-10-13T07:00:00Z",
+      "ends_at": "2026-10-13T08:00:00Z",
+      "teacher": {
+        "id": "teacher-emily",
+        "name": "Emily Walker"
+      },
+      "stage_index": 1,
+      "status": "confirmed",
+      "classroom_url": null,
+      "attendance": "not_recorded",
+      "feedback": "",
+      "material_ids": [
+        "M-01",
+        "M-02"
+      ]
+    },
+    {
+      "id": "L-021",
+      "student_id": "student-sophia",
+      "title": "Workplace introductions",
+      "starts_at": "2026-10-15T07:00:00Z",
+      "ends_at": "2026-10-15T08:00:00Z",
+      "teacher": {
+        "id": "teacher-emily",
+        "name": "Emily Walker"
+      },
+      "stage_index": 0,
+      "status": "proposed",
+      "classroom_url": null,
+      "attendance": "not_recorded",
+      "feedback": "",
+      "material_ids": []
+    }
+  ],
+  "materials": [
+    {
+      "id": "M-01",
+      "title": "Academic Argument Guide",
+      "locator": "Unit 3 · pp. 14–18",
+      "status": "approved",
+      "lesson_id": "L-018",
+      "content": "A claim tells the reader what you think. Evidence gives an observation or example. Commentary explains why the evidence supports the claim. Use a short because bridge to make the relationship explicit.",
+      "source_refs": []
+    },
+    {
+      "id": "M-02",
+      "title": "Evidence & Commentary",
+      "locator": "Writing toolkit · section 2.1",
+      "status": "approved",
+      "lesson_id": "L-018",
+      "content": "Evidence: students respond to competing interpretations in a seminar. Explanation: defending assumptions makes reasoning clearer. Claim: seminar discussion improves argument quality.",
+      "source_refs": []
+    }
+  ],
+  "interactions": [
+    {
+      "id": "RQ-01",
+      "student_id": "student-ivy",
+      "type": "explain",
+      "question": "How do I explain the link between my evidence and my main claim?",
+      "answer": "Use a short because bridge: give the evidence, explain what it shows, and connect that explanation to your main claim.",
+      "feedback": null,
+      "status": "completed",
+      "confidence": 0.89,
+      "source_refs": [
+        {
+          "material_id": "M-01",
+          "title": "Academic Argument Guide",
+          "locator": "Unit 3 · pp. 14–18"
+        },
+        {
+          "material_id": "M-02",
+          "title": "Evidence & Commentary",
+          "locator": "Writing toolkit · section 2.1"
+        }
+      ],
+      "sent_at": "2026-10-10T07:10:00Z",
+      "escalation": null
+    },
+    {
+      "id": "RQ-09",
+      "student_id": "student-ivy",
+      "type": "explain",
+      "question": "May I cite an unpublished seminar recording?",
+      "answer": "The teaching corpus does not establish the recording’s citation and permission rules. Emily will review this question.",
+      "feedback": null,
+      "status": "escalated",
+      "confidence": 0.41,
+      "source_refs": [],
+      "sent_at": "2026-10-10T07:12:00Z",
+      "escalation": {
+        "trigger": "Insufficient source evidence",
+        "status": "pending",
+        "review_id": "RV-Q09",
+        "resolved_by": null
+      }
+    }
+  ],
+  "reviews": [
+    {
+      "id": "RV-021",
+      "kind": "plan",
+      "student_id": "student-sophia",
+      "subject_id": "PL-021",
+      "status": "pending",
+      "trigger": "Initial learning plan requires teacher approval.",
+      "decision": null
+    },
+    {
+      "id": "RV-019-v2",
+      "kind": "plan",
+      "student_id": "student-ivy",
+      "subject_id": "PL-019:v2",
+      "status": "pending",
+      "trigger": "A major plan revision requires teacher judgement.",
+      "decision": null
+    },
+    {
+      "id": "RV-A104",
+      "kind": "assessment",
+      "student_id": "student-ivy",
+      "subject_id": "A-104",
+      "status": "pending",
+      "trigger": "Confidence 0.62 is below the review threshold.",
+      "decision": null
+    },
+    {
+      "id": "RV-Q09",
+      "kind": "question",
+      "student_id": "student-ivy",
+      "subject_id": "RQ-09",
+      "status": "pending",
+      "trigger": "The available sources do not support the question.",
+      "decision": null
+    }
+  ],
+  "operations": {
+    "agents": [
+      {
+        "id": "coordinator",
+        "name": "Course Coordinator",
+        "status": "healthy",
+        "latest_task": {
+          "id": "TASK-1",
+          "status": "completed",
+          "confidence": 0.93,
+          "started_at": "2026-10-10T07:20:00Z",
+          "output_summary": "Routed a learning question to the Teaching Assistant."
+        },
+        "logs": []
+      },
+      {
+        "id": "assessment",
+        "name": "Assessment Agent",
+        "status": "healthy",
+        "latest_task": {
+          "id": "TASK-2",
+          "status": "completed",
+          "confidence": 0.62,
+          "started_at": "2026-10-10T07:21:00Z",
+          "output_summary": "Writing result sent for teacher review."
+        },
+        "logs": []
+      },
+      {
+        "id": "consultant",
+        "name": "Course Consultant",
+        "status": "healthy",
+        "latest_task": {
+          "id": "TASK-3",
+          "status": "completed",
+          "confidence": 0.86,
+          "started_at": "2026-10-10T07:22:00Z",
+          "output_summary": "Draft plan revision awaits teacher judgement."
+        },
+        "logs": []
+      },
+      {
+        "id": "assistant",
+        "name": "Teaching Assistant",
+        "status": "degraded",
+        "latest_task": {
+          "id": "TASK-4",
+          "status": "failed",
+          "confidence": 0.41,
+          "started_at": "2026-10-10T07:23:00Z",
+          "output_summary": "A retrieval attempt failed; recovery needs approval."
+        },
+        "logs": []
+      },
+      {
+        "id": "technical",
+        "name": "Technical Manager",
+        "status": "healthy",
+        "latest_task": {
+          "id": "TASK-5",
+          "status": "completed",
+          "confidence": 0.91,
+          "started_at": "2026-10-10T07:24:00Z",
+          "output_summary": "Diagnosed the index mismatch and prepared a recovery proposal."
+        },
+        "logs": []
+      }
+    ],
+    "services": [
+      {
+        "name": "Application service",
+        "status": "healthy",
+        "last_backup_at": null
+      },
+      {
+        "name": "Retrieval index",
+        "status": "degraded",
+        "last_backup_at": null
+      },
+      {
+        "name": "Learning records",
+        "status": "healthy",
+        "last_backup_at": "2026-10-10T02:00:00Z"
+      }
+    ],
+    "logs": [
+      {
+        "id": "LG-01",
+        "time": "2026-10-10T07:20:00Z",
+        "agent_id": "coordinator",
+        "event": "Question routed",
+        "severity": "info",
+        "task_status": "completed",
+        "confidence": 0.93,
+        "escalated": false
+      },
+      {
+        "id": "LG-02",
+        "time": "2026-10-10T07:21:00Z",
+        "agent_id": "assessment",
+        "event": "Low-confidence result escalated",
+        "severity": "warning",
+        "task_status": "completed",
+        "confidence": 0.62,
+        "escalated": true
+      },
+      {
+        "id": "LG-03",
+        "time": "2026-10-10T07:22:00Z",
+        "agent_id": "consultant",
+        "event": "Plan draft created",
+        "severity": "info",
+        "task_status": "completed",
+        "confidence": 0.86,
+        "escalated": false
+      },
+      {
+        "id": "LG-04",
+        "time": "2026-10-10T07:23:00Z",
+        "agent_id": "assistant",
+        "event": "Retrieval index mismatch",
+        "severity": "error",
+        "task_status": "failed",
+        "confidence": 0.41,
+        "escalated": true
+      },
+      {
+        "id": "LG-05",
+        "time": "2026-10-10T07:24:00Z",
+        "agent_id": "technical",
+        "event": "Controlled recovery proposed",
+        "severity": "info",
+        "task_status": "completed",
+        "confidence": 0.91,
+        "escalated": false
+      },
+      {
+        "id": "LG-06",
+        "time": "2026-10-10T06:50:00Z",
+        "agent_id": "technical",
+        "event": "Predefined retry recovered a transient timeout",
+        "severity": "info",
+        "task_status": "completed",
+        "confidence": null,
+        "escalated": false
+      }
+    ],
+    "warnings": [
+      {
+        "id": "W-014",
+        "agent_id": "assistant",
+        "status": "open",
+        "trigger": "Index mismatch after retry",
+        "output_summary": "Reliable source retrieval is temporarily unavailable.",
+        "created_at": "2026-10-10T07:23:00Z"
+      }
+    ],
+    "cases": [
+      {
+        "id": "ES-12",
+        "kind": "business",
+        "status": "pending",
+        "subject": "Teacher availability does not overlap",
+        "trigger": "Coordinator and Consultant could not allocate a compatible teacher/time.",
+        "diagnosis": "Student requires Thursday evening; the matched teacher has no remaining slot.",
+        "evidence": [
+          {
+            "ref": "MATCH-12",
+            "summary": "No conflict-free overlap in the declared availability."
+          },
+          {
+            "ref": "PLAN-12",
+            "summary": "Current plan remains unchanged."
+          }
+        ],
+        "proposal_id": null,
+        "decision": null,
+        "verification": null
+      },
+      {
+        "id": "ES-13",
+        "kind": "business",
+        "status": "pending",
+        "subject": "A service question remains unresolved",
+        "trigger": "The assigned teacher could not resolve a service-level exception.",
+        "diagnosis": "The learner needs a human decision about the permitted course scope.",
+        "evidence": [
+          {
+            "ref": "ESC-13",
+            "summary": "Teacher escalation outcome recorded."
+          }
+        ],
+        "proposal_id": null,
+        "decision": null,
+        "verification": null
+      },
+      {
+        "id": "IN-014",
+        "kind": "technical",
+        "status": "awaiting_approval",
+        "subject": "Retrieval index mismatch",
+        "trigger": "Teaching Assistant could not retrieve a cited source reliably.",
+        "diagnosis": "The current index references a corpus snapshot that no longer matches.",
+        "evidence": [
+          {
+            "ref": "LG-04",
+            "summary": "Retrieval failed after one controlled retry."
+          },
+          {
+            "ref": "CHECK-014",
+            "summary": "Source identifiers do not match the index snapshot."
+          }
+        ],
+        "proposal_id": "UP-08",
+        "decision": null,
+        "verification": null
+      },
+      {
+        "id": "IN-012",
+        "kind": "technical",
+        "status": "resolved",
+        "subject": "Transient service timeout",
+        "trigger": "Technical Manager detected a reversible timeout.",
+        "diagnosis": "Predefined low-risk retry restored the service.",
+        "evidence": [
+          {
+            "ref": "LG-06",
+            "summary": "Retry completed; service and consistency checks passed."
+          }
+        ],
+        "proposal_id": null,
+        "decision": {
+          "actor": "Technical Manager",
+          "action": "predefined_retry"
+        },
+        "verification": "passed"
+      }
+    ],
+    "proposals": [
+      {
+        "id": "UP-07",
+        "type": "corpus",
+        "title": "Add reviewed academic writing sources",
+        "case_id": null,
+        "status": "pending",
+        "evidence": [
+          "Repeated source gaps caused teacher escalation."
+        ],
+        "before": "Limited evidence-linking examples",
+        "after": "Add three reviewed resources with citation locators.",
+        "validation": "Check source access, consistency and retrieval on sample questions.",
+        "rollback": "Restore the previous corpus snapshot and matching index.",
+        "decision": null,
+        "execution": {
+          "status": "not_started",
+          "verification": null
+        }
+      },
+      {
+        "id": "UP-08",
+        "type": "recovery",
+        "title": "Rebuild the matching retrieval index",
+        "case_id": "IN-014",
+        "status": "pending",
+        "evidence": [
+          "One controlled retry failed.",
+          "The index and source snapshot do not match."
+        ],
+        "before": "Index references the wrong corpus snapshot",
+        "after": "Rebuild the index from the approved corpus snapshot.",
+        "validation": "Verify source identifiers and retrieval consistency before closing IN-014.",
+        "rollback": "Restore the previous approved index snapshot.",
+        "decision": null,
+        "execution": {
+          "status": "not_started",
+          "verification": null
+        }
+      },
+      {
+        "id": "UP-09",
+        "type": "configuration",
+        "title": "Correct resource-request routing",
+        "case_id": null,
+        "status": "pending",
+        "evidence": [
+          "A resource request was routed to assessment."
+        ],
+        "before": "Resource intent has an ambiguous route",
+        "after": "Route approved resource requests to the Teaching Assistant.",
+        "validation": "Check the approved intent examples and escalation rules.",
+        "rollback": "Restore the previous routing configuration.",
+        "decision": null,
+        "execution": {
+          "status": "not_started",
+          "verification": null
+        }
+      }
+    ],
+    "audit": [
+      {
+        "id": "AUD-012",
+        "time": "2026-10-10T06:50:00Z",
+        "actor_role": "Technical Manager",
+        "actor_name": "Technical Manager",
+        "subject_id": "IN-012",
+        "action": "Predefined low-risk retry",
+        "result": "Verified; incident closed."
+      }
+    ]
+  },
+  "demo": {
+    "active_student": "student-ivy",
+    "auth_user": null,
+    "session": null,
+    "goal_summary_fresh": true,
+    "selected_slot": null,
+    "material_id": "M-01",
+    "review_id": "RV-021",
+    "proposal_id": "UP-07"
+  }
+}

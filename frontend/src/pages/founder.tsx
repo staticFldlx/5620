@@ -1,0 +1,476 @@
+import { useEffect, useState } from "react"
+import { Link } from "react-router"
+import {
+  Activity,
+  ArrowRight,
+  ClipboardCheck,
+  Radar,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react"
+import { api } from "@/api/client"
+import { useApp } from "@/app-context"
+import type { Case, Proposal } from "@/api/types"
+import {
+  AIVisual,
+  Empty,
+  Metric,
+  Page,
+  Panel,
+  Pill,
+  Row,
+} from "@/components/layout"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+const time = (value: string) =>
+  new Date(value).toLocaleString("en-AU", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Australia/Sydney",
+  })
+function useOperations() {
+  return useApp().workspace?.operations
+}
+export function FounderOverview() {
+  const ops = useOperations()
+  const logs = ops?.logs || []
+  const pending = ops?.proposals.filter((x) => x.status === "pending") || []
+  return (
+    <Page
+      eyebrow="OBSERVABLE OPERATIONS · HUMAN AUTHORITY"
+      title="A clear view of the system."
+      subtitle="Monitor AI roles and decide where human intervention is needed."
+    >
+      <div className="metric-grid">
+        <Metric
+          label="Tasks in recent logs"
+          value={logs.length}
+          note="Loaded record sample"
+          icon={Activity}
+        />
+        <Metric
+          label="Failed tasks"
+          value={logs.filter((x) => x.task_status === "failed").length}
+          note="From the same log sample"
+          icon={TriangleAlert}
+        />
+        <Metric
+          label="Open exceptions"
+          value={ops?.cases.filter((x) => x.status !== "resolved").length || 0}
+          note="Business and technical cases"
+          icon={Radar}
+        />
+        <Metric
+          label="Pending decisions"
+          value={pending.length}
+          note="From proposal status"
+          icon={ClipboardCheck}
+        />
+      </div>
+      <div className="board two-thirds">
+        <Panel
+          className="operations-hero"
+          title="Five roles, one connected system"
+        >
+          <p>Observable AI. Accountable decisions.</p>
+          <div className="agent-grid">
+            {ops?.agents.map((agent) => (
+              <div className="agent-card" key={agent.id}>
+                <span className="agent-pulse" />
+                <strong>{agent.name}</strong>
+                <small>{agent.latest_task.output_summary}</small>
+                <Pill tone={agent.status === "healthy" ? "good" : "warn"}>
+                  {agent.status}
+                </Pill>
+              </div>
+            ))}
+          </div>
+          <AIVisual variant="signal" />
+        </Panel>
+        <Panel title="Needs your decision">
+          {ops?.cases
+            .filter((x) => x.status !== "resolved")
+            .slice(0, 3)
+            .map((item) => (
+              <Row
+                key={item.id}
+                title={item.subject}
+                detail={item.trigger}
+                right={
+                  <Link
+                    className="text-link"
+                    to={item.kind === "technical" ? "/f3" : "/f2"}
+                  >
+                    Review →
+                  </Link>
+                }
+              />
+            ))}
+        </Panel>
+        <Panel title="Recent confidence & escalations">
+          <div className="confidence-bars">
+            {logs.map((log) => (
+              <div key={log.id}>
+                <span>{log.id}</span>
+                <i style={{ height: `${Math.round(log.confidence * 100)}%` }} />
+              </div>
+            ))}
+          </div>
+          <p>
+            Escalations in sample: {logs.filter((x) => x.escalated).length} /{" "}
+            {logs.length}
+          </p>
+        </Panel>
+        <Panel title="Latest agent outputs">
+          {ops?.agents.slice(0, 4).map((agent) => (
+            <Row
+              key={agent.id}
+              title={agent.name}
+              detail={agent.latest_task.output_summary}
+              right={
+                <Pill
+                  tone={
+                    agent.latest_task.status === "completed" ? "good" : "warn"
+                  }
+                >
+                  {agent.latest_task.status}
+                </Pill>
+              }
+            />
+          ))}
+        </Panel>
+      </div>
+    </Page>
+  )
+}
+export function FounderCases() {
+  const ops = useOperations()
+  const { run, busy } = useApp()
+  const cases = ops?.cases.filter((x) => x.kind === "business") || []
+  const [selected, setSelected] = useState(cases[0]?.id || "")
+  const [detail, setDetail] = useState<Case | null>(null)
+  const [note, setNote] = useState("")
+  useEffect(() => {
+    if (selected)
+      api
+        .getCase(selected)
+        .then(setDetail)
+        .catch(() => setDetail(null))
+  }, [selected, cases.length])
+  async function decide(action: string) {
+    const result = await run(
+      () => api.decideCase(selected, action, note),
+      "Case decision recorded."
+    )
+    if (result) {
+      setDetail(result as Case)
+      setNote("")
+    }
+  }
+  return (
+    <Page
+      eyebrow="SERVICE EXCEPTIONS"
+      title="Resolve what needs a person."
+      subtitle="Review the trigger, diagnosis, and evidence before deciding how a business exception proceeds."
+    >
+      <div className="board teacher-grid">
+        <Panel title="Exception queue">
+          {cases.map((item) => (
+            <button
+              className={`select-row ${item.id === selected ? "active" : ""}`}
+              key={item.id}
+              onClick={() => {
+                setSelected(item.id)
+                setNote("")
+              }}
+            >
+              <strong>{item.subject}</strong>
+              <small>{item.trigger}</small>
+              <Pill tone={item.status === "resolved" ? "good" : "warn"}>
+                {item.status}
+              </Pill>
+            </button>
+          ))}
+        </Panel>
+        <Panel title="Case evidence">
+          {detail ? (
+            <>
+              <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
+                {detail.id} · {detail.status}
+              </Pill>
+              <h3>{detail.subject}</h3>
+              <p>{detail.diagnosis}</p>
+              <div className="visual-panel short">
+                <AIVisual variant="path" />
+              </div>
+              <h3>Evidence</h3>
+              {detail.evidence.map((item) => (
+                <Row key={item.ref} title={item.ref} detail={item.summary} />
+              ))}
+              {detail.status !== "decided" && detail.status !== "resolved" && (
+                <>
+                  <label className="field-label">
+                    Decision note
+                    <Textarea
+                      rows={4}
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                      placeholder="Record the reason and next action"
+                    />
+                  </label>
+                  <div className="button-row">
+                    <Button
+                      className="action primary"
+                      disabled={busy || !note.trim()}
+                      onClick={() => decide("approve_resolution")}
+                    >
+                      Approve resolution
+                    </Button>
+                    <Button
+                      className="action secondary"
+                      disabled={busy || !note.trim()}
+                      onClick={() => decide("request_followup")}
+                    >
+                      Request follow-up
+                    </Button>
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <Empty>Select an exception.</Empty>
+          )}
+        </Panel>
+      </div>
+    </Page>
+  )
+}
+export function FounderIncidents() {
+  const ops = useOperations()
+  const { run, busy } = useApp()
+  const incidents = ops?.cases.filter((x) => x.kind === "technical") || []
+  const [selected, setSelected] = useState(
+    incidents.find((x) => x.status !== "resolved")?.id || incidents[0]?.id || ""
+  )
+  const [detail, setDetail] = useState<Case | null>(null)
+  const [note, setNote] = useState("")
+  useEffect(() => {
+    if (selected)
+      api
+        .getCase(selected)
+        .then(setDetail)
+        .catch(() => setDetail(null))
+  }, [selected, incidents.length])
+  return (
+    <Page
+      eyebrow="TECHNICAL INCIDENTS"
+      title="Diagnose, then recover with control."
+      subtitle="Critical recovery waits for a Founder decision. Approval, execution, and verification are separate states."
+    >
+      <div className="board teacher-grid">
+        <Panel title="Incident queue">
+          {incidents.map((item) => (
+            <button
+              className={`select-row ${item.id === selected ? "active" : ""}`}
+              key={item.id}
+              onClick={() => setSelected(item.id)}
+            >
+              <strong>{item.subject}</strong>
+              <small>{item.trigger}</small>
+              <Pill tone={item.status === "resolved" ? "good" : "warn"}>
+                {item.status.replace("_", " ")}
+              </Pill>
+            </button>
+          ))}
+        </Panel>
+        <div className="stack">
+          <Panel title="Diagnosis">
+            {detail ? (
+              <>
+                <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
+                  {detail.id} · {detail.status.replace("_", " ")}
+                </Pill>
+                <h3>{detail.subject}</h3>
+                <p>{detail.diagnosis}</p>
+                <div className="visual-panel short">
+                  <AIVisual variant="scan" />
+                </div>
+                <h3>Evidence</h3>
+                {detail.evidence.map((item) => (
+                  <Row key={item.ref} title={item.ref} detail={item.summary} />
+                ))}
+              </>
+            ) : (
+              <Empty />
+            )}
+          </Panel>
+          <Panel title="Recovery path">
+            <div className="recovery-steps">
+              <span>01 · Diagnose</span>
+              <span>02 · Approve</span>
+              <span>03 · Execute</span>
+              <span>04 · Verify</span>
+            </div>
+            <p>
+              {detail?.verification ||
+                "Any controlled recovery must be approved and verified before closure."}
+            </p>
+            {detail?.proposal_id && (
+              <Link className="action primary" to="/f4">
+                Review proposal {detail.proposal_id} <ArrowRight size={15} />
+              </Link>
+            )}
+            <label className="field-label">
+              Correction request note
+              <Textarea
+                rows={3}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Explain the correction needed"
+              />
+            </label>
+            <Button
+              className="action secondary"
+              disabled={busy || !note.trim()}
+              onClick={() =>
+                run(
+                  () =>
+                    api.decideAgent("technical", "request_correction", note),
+                  "Correction requested and audited."
+                )
+              }
+            >
+              Request correction
+            </Button>
+          </Panel>
+        </div>
+      </div>
+    </Page>
+  )
+}
+export function FounderApprovals() {
+  const ops = useOperations()
+  const { run, busy } = useApp()
+  const proposals = ops?.proposals || []
+  const [selected, setSelected] = useState(proposals[0]?.id || "")
+  const [detail, setDetail] = useState<Proposal | null>(null)
+  const [note, setNote] = useState("")
+  useEffect(() => {
+    if (selected)
+      api
+        .getProposal(selected)
+        .then(setDetail)
+        .catch(() => setDetail(null))
+  }, [selected, proposals.length])
+  async function decide(action: "approve" | "reject") {
+    const result = await run(
+      () => api.decideProposal(selected, action, note),
+      "Decision recorded in the audit log."
+    )
+    if (result) {
+      setDetail(result as Proposal)
+      setNote("")
+    }
+  }
+  return (
+    <Page
+      eyebrow="APPROVALS & AUDIT"
+      title="Every change has a decision trail."
+      subtitle="Compare the proposed change, validation plan, and rollback before approval."
+    >
+      <div className="board teacher-grid">
+        <Panel title="Proposal queue">
+          {proposals.map((item) => (
+            <button
+              className={`select-row ${item.id === selected ? "active" : ""}`}
+              key={item.id}
+              onClick={() => {
+                setSelected(item.id)
+                setNote("")
+              }}
+            >
+              <strong>{item.title}</strong>
+              <small>
+                {item.type} · {item.id}
+              </small>
+              <Pill tone={item.status === "pending" ? "warn" : "good"}>
+                {item.status}
+              </Pill>
+            </button>
+          ))}
+        </Panel>
+        <div className="stack">
+          <Panel title="Proposal detail">
+            {detail ? (
+              <>
+                <Pill tone={detail.status === "pending" ? "warn" : "good"}>
+                  {detail.status}
+                </Pill>
+                <h3>{detail.title}</h3>
+                <div className="compare">
+                  <div>
+                    <small>Before</small>
+                    <p>{detail.before}</p>
+                  </div>
+                  <div>
+                    <small>After</small>
+                    <p>{detail.after}</p>
+                  </div>
+                </div>
+                <Row title="Evidence" detail={detail.evidence.join(" ")} />
+                <Row title="Validation" detail={detail.validation} />
+                <Row title="Rollback" detail={detail.rollback} />
+                <p>
+                  Execution: {detail.execution.status}. Approval does not itself
+                  verify a recovery.
+                </p>
+                {detail.status === "pending" && (
+                  <>
+                    <label className="field-label">
+                      Decision rationale
+                      <Textarea
+                        rows={3}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Record your reason"
+                      />
+                    </label>
+                    <div className="button-row">
+                      <Button
+                        className="action primary"
+                        disabled={busy || !note.trim()}
+                        onClick={() => decide("approve")}
+                      >
+                        Approve proposal <ShieldCheck size={15} />
+                      </Button>
+                      <Button
+                        className="action secondary"
+                        disabled={busy || !note.trim()}
+                        onClick={() => decide("reject")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <Empty>Select a proposal.</Empty>
+            )}
+          </Panel>
+          <Panel title="Audit trail">
+            {ops?.audit.map((entry) => (
+              <Row
+                key={entry.id}
+                title={`${entry.action} · ${entry.subject_id}`}
+                detail={`${time(entry.time)} · ${entry.actor_name} · ${entry.result}`}
+              />
+            ))}
+          </Panel>
+        </div>
+      </div>
+    </Page>
+  )
+}
