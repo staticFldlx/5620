@@ -1,0 +1,17 @@
+{
+  "_comment": "Course and teaching-material catalogue (design assumption 1: the only long-term structured dataset).",
+  "learning_materials": [
+    {"key": "LM-argument-guide", "title": "Academic Argument Guide", "type": "reading", "source": "LingoPath writing toolkit", "difficulty_level": "B2", "stage_topics": ["Evidence links", "Paragraph structure"]},
+    {"key": "LM-evidence-commentary", "title": "Evidence & Commentary", "type": "reading", "source": "LingoPath writing toolkit", "difficulty_level": "B2", "stage_topics": ["Evidence links"]}
+  ],
+  "courses": [
+    {"key": "CAT-01", "title": "Academic foundations", "skill": "Reading", "level": "B2", "prerequisites": [], "materials": []},
+    {"key": "CAT-02", "title": "Argumentative writing", "skill": "Writing", "level": "B2", "prerequisites": ["CAT-01"], "materials": ["LM-argument-guide", "LM-evidence-commentary"]},
+    {"key": "CAT-03", "title": "Critical reading", "skill": "Reading", "level": "C1", "prerequisites": ["CAT-02"], "materials": []},
+    {"key": "CAT-04", "title": "Seminar communication", "skill": "Speaking", "level": "C1", "prerequisites": ["CAT-03"], "materials": []},
+    {"key": "WORK-1", "title": "Core communication", "skill": "Speaking", "level": "B1", "prerequisites": [], "materials": []},
+    {"key": "WORK-2", "title": "Workplace vocabulary", "skill": "Vocabulary", "level": "B1", "prerequisites": ["WORK-1"], "materials": []},
+    {"key": "WORK-3", "title": "Presentations", "skill": "Speaking", "level": "B2", "prerequisites": ["WORK-2"], "materials": []},
+    {"key": "WORK-4", "title": "Interview confidence", "skill": "Speaking", "level": "B2", "prerequisites": ["WORK-3"], "materials": []}
+  ]
+}
