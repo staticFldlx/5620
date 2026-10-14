@@ -1,0 +1,81 @@
+{
+  "_comment": "Operational history, open reviews and Founder cases ported from frontend/src/mocks/fixture.json.",
+  "agent_states": [
+    {"agent_id": "teaching_support", "status": "degraded", "note": "A retrieval attempt failed; recovery needs approval."}
+  ],
+  "tasks": [
+    {"key": "LG-01", "task_type": "coordinator.classify_request", "status": "succeeded", "confidence": 0.93, "time": "2026-10-10T07:20:00Z", "summary": "Routed a learning question to the Teaching Assistant."},
+    {"key": "LG-02", "task_type": "assessment.conduct_assessment", "status": "escalated", "confidence": 0.62, "time": "2026-10-10T07:21:00Z", "summary": "Writing result sent for teacher review.", "reason": "low_confidence"},
+    {"key": "LG-03", "task_type": "planning.revise_plan", "status": "awaiting_approval", "confidence": 0.86, "time": "2026-10-10T07:22:00Z", "summary": "Draft plan revision awaits teacher judgement.", "reason": "approval_required"},
+    {"key": "LG-04", "task_type": "teaching_support.answer_question", "status": "failed", "confidence": 0.41, "time": "2026-10-10T07:23:00Z", "summary": "A retrieval attempt failed; recovery needs approval.", "reason": "retrieval_index_mismatch"},
+    {"key": "LG-06", "task_type": "tech_operations.monitor", "status": "succeeded", "confidence": null, "time": "2026-10-10T06:50:00Z", "summary": "Predefined retry recovered a transient timeout."},
+    {"key": "LG-05", "task_type": "tech_operations.diagnose", "status": "succeeded", "confidence": 0.91, "time": "2026-10-10T07:24:00Z", "summary": "Diagnosed the index mismatch and prepared a recovery proposal."}
+  ],
+  "reviews": [
+    {"key": "RV-021", "kind": "approval", "subject_type": "plan", "subject": "PL-021", "student": "student-sophia", "assignee": "teacher-emily", "trigger": "Initial learning plan requires teacher approval.", "confidence": null, "resume": "planning.activate_plan", "created_at": "2026-09-16T08:41:00Z"},
+    {"key": "RV-019-v2", "kind": "approval", "subject_type": "plan", "subject": "PL-019-v2", "student": "student-ivy", "assignee": "teacher-emily", "trigger": "A major plan revision requires teacher judgement.", "confidence": 0.86, "resume": "planning.activate_plan", "created_at": "2026-10-10T07:22:00Z"},
+    {"key": "RV-A104", "kind": "review", "subject_type": "assessment", "subject": "A-104", "student": "student-ivy", "assignee": "teacher-emily", "trigger": "Confidence 0.62 is below the review threshold.", "confidence": 0.62, "resume": "assessment.apply_review", "created_at": "2026-10-10T07:21:00Z"},
+    {"key": "RV-Q09", "kind": "review", "subject_type": "question", "subject": "RQ-09", "student": "student-ivy", "assignee": "teacher-emily", "trigger": "The available sources do not support the question.", "confidence": 0.41, "resume": "", "created_at": "2026-10-10T07:12:00Z"}
+  ],
+  "business_cases": [
+    {
+      "key": "ES-12",
+      "student": "student-sophia",
+      "assignee": "founder-alex",
+      "summary": "Teacher availability does not overlap",
+      "trigger": "Coordinator and Consultant could not allocate a compatible teacher/time.",
+      "diagnosis": "Student requires Thursday evening; the matched teacher has no remaining slot.",
+      "evidence": [{"ref": "MATCH-12", "summary": "No conflict-free overlap in the declared availability."}, {"ref": "PLAN-12", "summary": "Current plan remains unchanged."}],
+      "resume": "planning.match_teacher",
+      "created_at": "2026-10-10T07:30:00Z"
+    },
+    {
+      "key": "ES-13",
+      "student": "student-ivy",
+      "assignee": "founder-alex",
+      "summary": "A service question remains unresolved",
+      "trigger": "The assigned teacher could not resolve a service-level exception.",
+      "diagnosis": "The learner needs a human decision about the permitted course scope.",
+      "evidence": [{"ref": "ESC-13", "summary": "Teacher escalation outcome recorded."}],
+      "resume": "",
+      "created_at": "2026-10-10T07:35:00Z"
+    }
+  ],
+  "incidents": [
+    {
+      "key": "IN-014",
+      "severity": "high",
+      "status": "awaiting_approval",
+      "risk": "unknown",
+      "affected_components": ["retrieval_index"],
+      "subject": "Retrieval index mismatch",
+      "trigger": "Teaching Assistant could not retrieve a cited source reliably.",
+      "diagnosis": "The current index references a corpus snapshot that no longer matches.",
+      "evidence": [{"ref": "LG-04", "summary": "Retrieval failed after one controlled retry."}, {"ref": "CHECK-014", "summary": "Source identifiers do not match the index snapshot."}],
+      "verification": null,
+      "created_at": "2026-10-10T07:24:00Z"
+    },
+    {
+      "key": "IN-012",
+      "severity": "low",
+      "status": "resolved",
+      "risk": "safe",
+      "affected_components": ["application_service"],
+      "subject": "Transient service timeout",
+      "trigger": "Technical Manager detected a reversible timeout.",
+      "diagnosis": "Predefined low-risk retry restored the service.",
+      "evidence": [{"ref": "LG-06", "summary": "Retry completed; service and consistency checks passed."}],
+      "recovery_action": "predefined_retry",
+      "verification": "passed",
+      "created_at": "2026-10-10T06:50:00Z"
+    }
+  ],
+  "proposals": [
+    {"key": "UP-07", "change_type": "corpus", "title": "Add reviewed academic writing sources", "incident": null, "evidence_refs": ["Repeated source gaps caused teacher escalation."], "before": "Limited evidence-linking examples", "after": "Add three reviewed resources with citation locators.", "validation": "Check source access, consistency and retrieval on sample questions.", "rollback": "Restore the previous corpus snapshot and matching index.", "created_at": "2026-10-09T03:00:00Z"},
+    {"key": "UP-08", "change_type": "recovery", "title": "Rebuild the matching retrieval index", "incident": "IN-014", "evidence_refs": ["One controlled retry failed.", "The index and source snapshot do not match."], "before": "Index references the wrong corpus snapshot", "after": "Rebuild the index from the approved corpus snapshot.", "validation": "Verify source identifiers and retrieval consistency before closing IN-014.", "rollback": "Restore the previous approved index snapshot.", "created_at": "2026-10-10T07:25:00Z"},
+    {"key": "UP-09", "change_type": "configuration", "title": "Correct resource-request routing", "incident": null, "evidence_refs": ["A resource request was routed to assessment."], "before": "Resource intent has an ambiguous route", "after": "Route approved resource requests to the Teaching Assistant.", "validation": "Check the approved intent examples and escalation rules.", "rollback": "Restore the previous routing configuration.", "created_at": "2026-10-10T08:00:00Z"}
+  ],
+  "audit": [
+    {"key": "AUD-012", "time": "2026-10-10T06:50:00Z", "actor": "tech_operations", "action": "Predefined low-risk retry", "target": "IN-012", "result": "Verified; incident closed."}
+  ]
+}

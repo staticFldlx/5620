@@ -1,0 +1,22 @@
+{
+  "_comment": "Demo accounts (spec 8.8). Ported from frontend/src/mocks/fixture.json; Sophia gets a login so her record can exist. Keys become deterministic UUIDs.",
+  "users": [
+    {"key": "student-ivy", "name": "Ivy Lin", "email": "ivy.lin@example.com", "password": "demo1238", "role": "student"},
+    {"key": "student-sophia", "name": "Sophia Chen", "email": "sophia.chen@example.com", "password": "demo1238", "role": "student"},
+    {
+      "key": "teacher-emily",
+      "name": "Emily Walker",
+      "email": "emily.walker@example.com",
+      "password": "demo1238",
+      "role": "teacher",
+      "timezone": "Australia/Sydney",
+      "subject_areas": ["Academic English", "Workplace English"],
+      "availability": [
+        {"day": "Tue", "start": "18:00", "end": "20:00"},
+        {"day": "Thu", "start": "18:00", "end": "20:00"},
+        {"day": "Sat", "start": "17:00", "end": "18:00"}
+      ]
+    },
+    {"key": "founder-alex", "name": "Alex Hu", "email": "alex.hu@example.com", "password": "demo1238", "role": "founder"}
+  ]
+}
