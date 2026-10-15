@@ -8,6 +8,7 @@ the runtime then falls back to prompt-based JSON (spec 4.3).
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -16,6 +17,8 @@ from collections.abc import Iterable
 from .base import LLMAdapter, LLMError, LLMResponse, Message, ToolCall, ToolSchema
 
 RETRY_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
+MAX_RETRY_WAIT_S = 5.0  # a 429 that asks for a longer wait (e.g. a daily quota) fails at once instead of retrying
+RETRY_DELAY = re.compile(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
 FINISH_TO_STOP = {
     "stop": "end",
     "tool_calls": "tool_calls",
@@ -89,11 +92,29 @@ class SchoolAdapter(LLMAdapter):
                 last_error = exc
                 if exc.code not in RETRY_STATUS:
                     raise LLMError(f"LLM HTTP {exc.code}: {exc.read()[:300]!r}") from exc
+                wait = _retry_after(exc)
+                if wait is not None and wait > MAX_RETRY_WAIT_S:
+                    raise LLMError(f"LLM rate limit or quota exceeded (HTTP {exc.code}); the provider asks to retry in {int(wait)} s") from exc
+                if attempt < self.max_retries:
+                    time.sleep(wait if wait is not None else 2**attempt)
+                continue
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 last_error = exc
             if attempt < self.max_retries:
                 time.sleep(2**attempt)
         raise LLMError(f"LLM request failed after {self.max_retries + 1} attempts: {last_error}")
+
+
+def _retry_after(exc: urllib.error.HTTPError) -> float | None:
+    """Seconds the provider asks us to wait: the Retry-After header, or Gemini's retryDelay in the body."""
+    header = exc.headers.get("Retry-After") if exc.headers else None
+    if header and header.strip().replace(".", "", 1).isdigit():
+        return float(header)
+    try:
+        match = RETRY_DELAY.search(exc.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+    return float(match.group(1)) if match else None
 
 
 def _to_openai(message: Message) -> dict:

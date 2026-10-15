@@ -443,3 +443,15 @@ def test_other_teachers_cannot_prepare_the_lesson():
     tom = Api(Client()).login("tom@example.com", "longenough")
     response = tom.post("/requests", {"type": "lesson_briefing", "input": {"lesson_id": key("L-018")}})
     assert response.status_code == 403
+
+
+def test_loop_does_not_fall_back_while_the_provider_is_down(ivy, alex, llm, loop_mode):
+    def down(**_):
+        raise LLMError("LLM rate limit or quota exceeded (HTTP 429)")
+
+    adapter = llm(tool_call("get_student_context"), down)
+    envelope = ask(ivy)
+    assert envelope["status"] == "escalated" and len(adapter.calls) == 2  # no extra single call
+    steps = trace_of(alex, envelope["id"])
+    assert any(s.get("decision") == "fallback_skipped" for s in steps)
+    assert learning.history_entry(envelope["result"]["interaction"]["id"]).payload["reason"] == "llm_unavailable"

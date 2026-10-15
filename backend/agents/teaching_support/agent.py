@@ -106,6 +106,10 @@ class TeachingSupportAgent(AIAgent):
         if output is not None:
             self.runtime.note("loop_answered", tool_calls=len(loop.tool_results), materials_read=list(tools.read))
             return self._answer_from(student, question, output, list(tools.read.values()))
+        if loop.stopped == "error" and self._llm_failure_reason() == "llm_unavailable":
+            # another call would fail the same way and only delay the hand-over to the teacher
+            self.runtime.note("fallback_skipped", reason="llm_unavailable")
+            return self._answer_from(student, question, None, [])
         self.runtime.note("fallback_to_single", reason=loop.stopped if loop.stopped != "end" else "invalid_final_output", tool_calls=len(loop.tool_results))
         materials = list(tools.available.values())
         output = self._ask(prompts.EXPLAIN, ExplainOutput, context=context.learner(student), materials=materials, student_input=question)

@@ -193,3 +193,55 @@ def test_tool_loop_stops_when_time_budget_is_used(monkeypatch):
     assert result.stopped == "time_budget"
     assert len(runtime.adapter.calls) == 1 and len(result.tool_results) == 1
     assert runtime.trace[-1] == {"step": "decision", "decision": "time_budget_reached", "budget_s": 1.0, "steps": 1}
+
+
+def _http_429(headers=None, body=b""):
+    import email.message
+    import io
+    import urllib.error
+
+    message = email.message.Message()
+    for name, value in (headers or {}).items():
+        message[name] = value
+    return urllib.error.HTTPError("https://x/v1/chat/completions", 429, "Too Many Requests", message, io.BytesIO(body))
+
+
+def test_school_adapter_fails_fast_on_a_long_quota_wait(monkeypatch):
+    attempts, sleeps = [], []
+    body = b'[{"error": {"code": 429, "details": [{"retryDelay": "69824s"}]}}]'
+
+    def quota(request, timeout):
+        attempts.append(1)
+        raise _http_429(body=body)
+
+    monkeypatch.setattr("urllib.request.urlopen", quota)
+    monkeypatch.setattr("time.sleep", sleeps.append)
+    with pytest.raises(LLMError, match="quota"):
+        SchoolAdapter("https://x", "k").complete("s", [], model="m", max_tokens=5, timeout_s=1)
+    assert len(attempts) == 1 and sleeps == []
+
+
+def test_school_adapter_waits_out_a_short_rate_limit(monkeypatch):
+    responses = iter([_http_429(headers={"Retry-After": "1"}), None])
+    sleeps = []
+
+    class Ok:
+        def read(self):
+            return json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": "hi"}}]}).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def flaky(request, timeout):
+        error = next(responses)
+        if error is not None:
+            raise error
+        return Ok()
+
+    monkeypatch.setattr("urllib.request.urlopen", flaky)
+    monkeypatch.setattr("time.sleep", sleeps.append)
+    assert SchoolAdapter("https://x", "k").complete("s", [], model="m", max_tokens=5, timeout_s=1).text == "hi"
+    assert sleeps == [1.0]
