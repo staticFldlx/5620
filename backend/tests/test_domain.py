@@ -115,3 +115,10 @@ def test_availability_change_cannot_strand_a_booked_lesson():
     assert exc.value.code == "availability_conflicts_booking"
     slots = services.replace_availability(emily, emily, windows=[{"day": "Thu", "start": "17:00", "end": "21:00"}], tz="Australia/Sydney")
     assert [(s.day, s.start_time.hour, s.end_time.hour) for s in slots] == [("Thu", 17, 21)]
+
+
+def test_student_selector_only_returns_students():
+    assert learning.student(key("student-ivy")) == user("student-ivy")
+    assert learning.student(key("teacher-emily")) is None
+    assert learning.student(key("no-such-user")) is None
+    assert learning.student("not-a-uuid") is None

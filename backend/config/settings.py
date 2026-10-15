@@ -139,6 +139,14 @@ TASK_MAX_ATTEMPTS = int(env("TASK_MAX_ATTEMPTS", "2"))
 MAX_HOPS_PER_REQUEST = 6
 AGENT_CONFIDENCE_THRESHOLD = float(env("AGENT_CONFIDENCE_THRESHOLD", "0.70"))  # the only threshold
 
+# --- Agent options ----------------------------------------------------------
+# Teaching Assistant: "single" = one structured call per question (default, fits the 10 s frontend timeout);
+# "loop" = tool loop that falls back to a single call when it runs out of steps or time.
+TEACHING_SUPPORT_EXPLAIN_MODE = env("TEACHING_SUPPORT_EXPLAIN_MODE", "single")
+if TEACHING_SUPPORT_EXPLAIN_MODE not in ("single", "loop"):
+    raise RuntimeError("TEACHING_SUPPORT_EXPLAIN_MODE must be single or loop")
+TEACHING_SUPPORT_LOOP_BUDGET_SECONDS = float(env("TEACHING_SUPPORT_LOOP_BUDGET_SECONDS", "6"))
+
 AGENT_REGISTRY = {
     "coordinator": "orchestration.coordinator.agent.CoordinatorAgent",
     "assessment": "agents.assessment.agent.AssessmentAgent",

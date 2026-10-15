@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -22,12 +23,13 @@ class LoopSpec:
     max_steps: int = 6
     tier: str = "default"
     max_tokens: int = 1024
+    time_budget_s: float | None = None  # stop before the next model call once this many seconds have passed
 
 
 @dataclass
 class LoopResult:
     final_text: str
-    stopped: Literal["end", "max_steps", "error"]
+    stopped: Literal["end", "max_steps", "time_budget", "error"]
     messages: list[Message]
     tool_results: list[dict[str, Any]] = field(default_factory=list)  # [{name, args, result}]
 
@@ -37,6 +39,9 @@ DEGRADED_TOOL_PROMPT = (
     '{{"tool": "<name>", "args": {{...}}}}. When you are done, reply with only '
     '{{"final": "<answer>"}}.\nTools:\n{tools}'
 )
+
+
+_clock = time.monotonic  # replaced in tests
 
 
 def _call_key(call: ToolCall) -> str:
@@ -65,7 +70,11 @@ def run_tool_loop(runtime: "AgentRuntime", spec: LoopSpec, messages: list[Messag
     history = list(messages)
     seen: set[str] = set()
     results: list[dict[str, Any]] = []
+    started = _clock()
     for _ in range(spec.max_steps):
+        if spec.time_budget_s is not None and _clock() - started >= spec.time_budget_s:
+            runtime.note("time_budget_reached", budget_s=spec.time_budget_s, steps=len(results))
+            return LoopResult("", "time_budget", history, results)
         response = runtime.execute_prompt(system, history, tier=spec.tier, tools=list(spec.tools) if native else None, max_tokens=spec.max_tokens)
         if response.stop in ("error", "refused", "max_tokens"):
             return LoopResult(response.text, "error", history, results)

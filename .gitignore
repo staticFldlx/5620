@@ -1,2 +1,4 @@
 # macOS metadata
 .DS_Store
+.vscode/
+.venv/
