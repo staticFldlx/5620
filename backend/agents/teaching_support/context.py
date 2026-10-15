@@ -7,14 +7,29 @@ approved lesson materials of the learner's current plan stage.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from domain.common import iso
 from domain.learning import selectors as learning
 
 MATERIAL_CHARS = 1200
+WORD = re.compile(r"[a-z]{3,}")
+# words that say nothing about which material fits (the default resources question in the frontend uses several)
+STOPWORDS = frozenset(
+    "the and for with how what can you your are have has this that from about into does should would could "
+    "find learning resources resource current stage materials material help need want some which please".split()
+)
 RECENT_QUESTIONS = 5
 RECENT_FEEDBACK = 3
+
+
+def redact(text: str, student: Any) -> str:
+    """Replace the learner's name in free text (teacher notes, questions) before it leaves the platform."""
+    parts = [student.name] + [part for part in student.name.split() if len(part) > 1]
+    for part in sorted(set(parts), key=len, reverse=True):
+        text = re.sub(rf"\b{re.escape(part)}\b", "the learner", text, flags=re.IGNORECASE)
+    return text
 
 
 def current_stage(student: Any) -> dict | None:
@@ -37,7 +52,7 @@ def current_stage(student: Any) -> dict | None:
 
 def recent_questions(student: Any, limit: int = RECENT_QUESTIONS) -> list[str]:
     entries = learning.history(student, kinds=("explain",)).order_by("-created_at")[:limit]
-    return [entry.payload.get("question", "") for entry in entries if entry.payload.get("question")]
+    return [redact(entry.payload["question"], student) for entry in entries if entry.payload.get("question")]
 
 
 def learner(student: Any) -> dict:
@@ -69,7 +84,8 @@ def teacher_view(student: Any) -> dict:
             "kind": record.session.type,
             "date": iso(record.created_at),
             "level": record.overall_level,
-            "status": record.status,  # pending_review = provisional, not yet confirmed by a teacher
+            "status": record.status,
+            "provisional": record.status != "confirmed",  # pending_review: not yet confirmed by a teacher
             "confidence": record.confidence,
             "strengths": list(record.strengths or []),
             "weaknesses": list(record.weak_areas or []),
@@ -91,11 +107,41 @@ def teacher_view(student: Any) -> dict:
     pending = learning.pending_plan(student)
     view["pending_plan"] = {"version": pending.version, "status": pending.status, "reason": pending.rationale} if pending else None
     lessons = list(learning.lessons_for_student(student))
-    feedback = [{"lesson": lesson.title, "date": iso(lesson.starts_at), "feedback": text} for lesson in lessons if (text := learning.latest_lesson_feedback(lesson))]
+    feedback = [
+        {"lesson": lesson.title, "date": iso(lesson.starts_at), "feedback": redact(text, student)}
+        for lesson in lessons
+        if (text := learning.latest_lesson_feedback(lesson))
+    ]
     view["lesson_feedback"] = feedback[-RECENT_FEEDBACK:]
     observation = learning.latest_observation(student)
-    view["teacher_observation"] = observation.text if observation else ""
+    view["teacher_observation"] = redact(observation.text, student) if observation else ""
     return view
+
+
+def missing_progress_data(view: dict) -> list[str]:
+    """UC06 3a: gaps the platform can see without the model, so they are always reported."""
+    gaps = []
+    assessments = view["assessments"]
+    if not assessments:
+        gaps.append("no assessment results")
+    elif all(a["provisional"] for a in assessments):
+        gaps.append("no confirmed assessment result")
+    if view["plan"] is None:
+        gaps.append("no active learning plan")
+    if not view["lesson_feedback"]:
+        gaps.append("no lesson feedback yet")
+    if not view["teacher_observation"]:
+        gaps.append("no teacher observation")
+    return gaps
+
+
+def results_summary(view: dict) -> str:
+    """One line that always separates confirmed from provisional results."""
+    parts = []
+    for a in view["assessments"]:
+        state = "confirmed" if not a["provisional"] else "provisional, awaiting teacher review" if a["status"] == "pending_review" else a["status"]
+        parts.append(f"{a['kind']} {a['level']} ({state}, {(a['date'] or '')[:10]})")
+    return f"Results: {'; '.join(parts)}." if parts else ""
 
 
 def lesson_info(lesson: Any) -> dict:
@@ -105,7 +151,7 @@ def lesson_info(lesson: Any) -> dict:
         "starts_at": iso(lesson.starts_at),
         "status": lesson.status,
         "stage": {"number": stage.stage_number, "title": stage.title, "topics": list(stage.topics or []), "milestone": stage.milestone} if stage else None,
-        "last_feedback": learning.latest_lesson_feedback(lesson),
+        "last_feedback": redact(learning.latest_lesson_feedback(lesson), lesson.student),
     }
 
 
@@ -133,3 +179,28 @@ def stage_materials(student: Any, *, limit: int = 5) -> list[dict]:
 
 def lesson_materials(lesson: Any) -> list[dict]:
     return [material_entry(m) for m in learning.materials_for_lessons([lesson], approved_only=True)]
+
+
+def lesson_and_stage_materials(lesson: Any, *, limit: int = 5) -> list[dict]:
+    """The lesson's own approved materials first, then the learner's current-stage materials."""
+    found = {m["id"]: m for m in lesson_materials(lesson)}
+    for material in stage_materials(lesson.student, limit=limit):
+        found.setdefault(material["id"], material)
+    return list(found.values())[:limit]
+
+
+def keywords(text: str) -> set[str]:
+    return {word for word in WORD.findall(text.lower()) if word not in STOPWORDS}
+
+
+def rank_materials(materials: list[dict], question: str) -> list[dict]:
+    """Order materials by how many question keywords they contain; ties keep the stage order."""
+    words = keywords(question)
+    if not words:
+        return list(materials)
+
+    def score(material: dict) -> int:
+        text = f"{material['title']} {material['locator']} {material['content']}".lower()
+        return sum(1 for word in words if word in text)
+
+    return sorted(materials, key=score, reverse=True)

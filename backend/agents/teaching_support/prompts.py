@@ -41,6 +41,17 @@ Task: answer the learner's English-learning question at the learner's level (see
 - Keep the answer under 120 words, with one short example when it helps.""",
 )
 
+EXPLAIN_LOOP = Prompt(
+    "teaching_support.explain_loop.v1",
+    EXPLAIN.system
+    + """
+You can call tools to look things up before answering: get_student_context, list_stage_materials, read_material, recent_questions.
+- Start with get_student_context, then read the materials that fit the question. Only materials you read with read_material may be cited.
+- Use at most 3 tool calls.
+- When you have enough information, reply with only one JSON object with the keys
+  answer, cited_material_ids, self_confidence, in_scope, needs_teacher, reason - no other text.""",
+)
+
 RESOURCES = Prompt(
     "teaching_support.resources.v1",
     BASE
@@ -74,9 +85,10 @@ PROGRESS = Prompt(
     BASE
     + """
 Task: write a progress analysis for the learner's teacher (UC06): current stage and milestone, recent results, weak areas, recent questions.
-Assessments with status pending_review are provisional: say so and do not treat them as confirmed.
-List missing or incomplete data in missing_data, and set suggest_directed_assessment when the evidence is too weak to judge progress.
-evidence: short references to the records you used. Keep the analysis under 150 words.""",
+Assessments marked provisional are not confirmed by a teacher: say so and do not treat them as confirmed.
+<request> may list gaps the platform already found; do not repeat them in missing_data, add only other missing or incomplete data.
+Set suggest_directed_assessment when the evidence is too weak to judge progress.
+evidence: short references to the records you used. Keep the analysis under 100 words.""",
 )
 
 RECOMMEND = Prompt(
@@ -84,23 +96,27 @@ RECOMMEND = Prompt(
     BASE
     + """
 Task: recommend 2 to 4 adjustments to the learner's plan or teaching strategy for the teacher (UC07).
-Each recommendation states what to change, why, and the evidence from <context>. You do not change the plan yourself.""",
+Each recommendation is one sentence of at most 30 words: what to change, why, and the evidence from <context>.
+You do not change the plan yourself.
+Build on latest_progress_analysis when it is present. If a plan revision is already waiting for review (pending_plan), take it into account.""",
 )
 
 BRIEFING = Prompt(
     "teaching_support.briefing.v1",
     BASE
     + """
-Task: write a pre-lesson briefing for the teacher (under 150 words): stage and milestone, recent results, weak areas,
-recent learner questions, and which approved materials to use. Put the ids of suggested materials in material_ids.""",
+Task: write a pre-lesson briefing for the teacher of the lesson in <lesson> (under 120 words): stage and milestone,
+recent results (results marked provisional are not confirmed), weak areas, recent learner questions, the latest lesson
+feedback and teacher observation, and which approved materials to use. Put the ids of suggested materials in material_ids.""",
 )
 
 MATERIAL = Prompt(
     "teaching_support.material.v1",
     BASE
     + """
-Task: draft teaching material for the lesson as described in <request> (topic, level, type, guidance).
-The teacher will review and edit it before learners see it. Keep it practical and under 300 words.
+Task: draft teaching material for the lesson as described in <request> (title, topic, level, type, guidance).
+Target the weak areas listed in <request> when they fit the topic. The teacher will review and edit it before learners see it.
+Keep it practical and under 300 words; for exercises, end with a short answer key for the teacher.
 If you build on materials from <materials>, list their ids in cited_material_ids. Never invent an id.""",
 )
 
