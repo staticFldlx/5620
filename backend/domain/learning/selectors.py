@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
+
+from domain.common import Role
 
 from .models import (
     AssessmentSession,
@@ -22,6 +26,14 @@ from .models import (
 
 PENDING_PLAN_STATUSES = ("pending_review", "changes_requested")
 INTERACTION_KINDS = ("explain", "resources")
+
+
+def student(pk: Any) -> Any | None:
+    """The User with the student role, or None (agents cannot import the identity app)."""
+    try:
+        return get_user_model().objects.filter(pk=pk, groups__name=Role.STUDENT, is_active=True).first()
+    except (ValidationError, ValueError, TypeError):
+        return None
 
 
 def profile_for(student: Any) -> LearningProfile | None:

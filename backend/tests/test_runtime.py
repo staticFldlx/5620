@@ -183,3 +183,13 @@ def test_fake_adapter_without_script_raises():
     runtime = make_runtime()
     assert runtime.execute_prompt("s", user("x")).stop == "error"
     assert isinstance(LLMResponse(text=""), LLMResponse)
+
+
+def test_tool_loop_stops_when_time_budget_is_used(monkeypatch):
+    ticks = iter([0.0, 0.5, 2.0])  # loop start, before call 1, before call 2
+    monkeypatch.setattr("agents.runtime.loop._clock", lambda: next(ticks))
+    runtime = make_runtime(default=tool_call("query_courses", {"skill": "SQL"}))
+    result = runtime.run_tool_loop(LoopSpec(system="plan", tools=(courses_tool(),), max_steps=5, time_budget_s=1.0), user("x"))
+    assert result.stopped == "time_budget"
+    assert len(runtime.adapter.calls) == 1 and len(result.tool_results) == 1
+    assert runtime.trace[-1] == {"step": "decision", "decision": "time_budget_reached", "budget_s": 1.0, "steps": 1}

@@ -78,7 +78,7 @@ Goal / Intention / Belief / PlatformEnvironment 不单独建表，对应关系�
 
 ### 1.4 读写约定
 
-- **只读**：一律走 `selectors.py`，不在业务代码里直接写 `Model.objects`。
+- **只读**：一律走 `selectors.py`，不在业务代码里直接写 `Model.objects`。agent 不能 import identity，拿学生的 User 对象用 `domain.learning.selectors.student(pk)`。
 - **视图**：`views.py` 把模型渲染成前端 JSON（与 `frontend/src/api/types.ts` 一致），例如 `plan_view`、`lesson_view`、`interaction_view`。agent 组装返回结果时直接用这些函数，不要手写 dict。
 - **写入**：一律走 `services.py`，第一个参数是 actor，可以是以下几种：
   - agent id，如 `"planning"`
@@ -111,7 +111,7 @@ class PlanningAgent(AIAgent):          # 放在 agents/planning/agent.py，类�
 | `execute_prompt(system, messages, *, tier="default", tools=None, max_tokens=1024, json_schema=None)` | 一次 LLM 调用。提供方出错时返回 `stop="error"`，不抛异常。模型名、token 和耗时自动写入 trace |
 | `structured(system, messages, Schema, *, tier)` | 返回通过 pydantic 校验的对象；校验失败带上错误信息重试 1 次，仍失败返回 `None` |
 | `call_tool(name, args)` | 工具抛出的异常、参数不合法都转成 `{"error": ...}` 返回，不往上抛 |
-| `run_tool_loop(LoopSpec, messages)` | 通用工具循环：max_steps 上限；相同调用不重复执行；工具错误不中断循环。返回值的 `stopped` 为 `end`、`max_steps` 或 `error` |
+| `run_tool_loop(LoopSpec, messages)` | 通用工具循环：max_steps 上限；可选的 `time_budget_s`（超时后不再调用模型）；相同调用不重复执行；工具错误不中断循环。返回值的 `stopped` 为 `end`、`max_steps`、`time_budget` 或 `error`，没有正常结束时应退回更简单的做法 |
 | `calculate_confidence(signals, weights=None)` | 把若干 [0,1] 信号做加权平均 |
 | `is_low_confidence(c)` | `c < AGENT_CONFIDENCE_THRESHOLD`。阈值全系统只有这一个，不要自己定义第二个 |
 | `note(decision, **details)` | 把决策理由写进 trace，供 `GET /requests/{id}/trace` 展示 |
@@ -316,7 +316,7 @@ agent 自己的原因码在各自的设计文档里列出，并说明对应哪�
 ## 5. 检索、配置、数据、测试、启动
 
 - **检索**：`infrastructure.retrieval` 提供 `is_enabled()`、`search()`、`ingest()`。目前只实现了 `none` 档位，调用方必须先检查 `is_enabled()`；没有检索时如何回答（例如注明“未引用教材”）由 agent 自己决定。keyword 或 vector 档位以后可以在同一接口下补上。
-- **配置**：全部来自环境变量，见 `.env.example`。全系统只有一个阈值 `AGENT_CONFIDENCE_THRESHOLD=0.70`。
+- **配置**：全部来自环境变量，见 `.env.example`。全系统只有一个阈值 `AGENT_CONFIDENCE_THRESHOLD=0.70`。agent 自己的开关也放在 settings 里，按 `<AGENT>_<OPTION>` 命名，例如 `TEACHING_SUPPORT_EXPLAIN_MODE`。
 - **演示数据**：`python manage.py load_demo_data [--reset]` 按文件名顺序导入 `fixtures/demo_*.json`。fixture 里的 `key` 会转成确定的 uuid5，所以每次导入的 id 都一样。负责人把自己的数据放在 `fixtures/<agent_id>_*.json`，用 Django 标准 fixture 格式，不要改别人的文件。
 - **测试**：`python -m pytest`。
   - 测试替身 agent 在 `tests/stub_agents.py`，用 `stubs` fixture 按 task_type 注册行为，写法可参考 `tests/test_pipeline.py`。
