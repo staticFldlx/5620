@@ -45,7 +45,8 @@ def test_learner_context_uses_current_stage_without_personal_data():
     assert context.stage_materials(learning.student(key("student-sophia"))) == []
     teacher = context.teacher_view(ivy)
     assert [a["status"] for a in teacher["assessments"]] == ["confirmed", "pending_review"]
-    assert teacher["teacher_observation"].startswith("Ivy states a claim")
+    assert teacher["teacher_observation"].startswith("the learner states a claim")  # the name is redacted
+    assert "Ivy" not in json.dumps(teacher)
 
 
 # --- offline mode: every task returns a contract-valid result -------------------------------
@@ -325,3 +326,61 @@ def test_feedback_without_practice_fails(ivy):
     response = ivy.post("/requests", {"type": "practice_answer", "input": {"answer": "hello"}})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "no_practice_item" and response.json()["message"] == "Start a practice first."
+
+
+# --- T7: progress analysis and plan recommendations -----------------------------------------------
+def analysis_reply(**overrides) -> dict:
+    reply = {"analysis": "Stage 2 is in progress; evidence links remain weak.", "evidence": ["A-098", "L-016 feedback"], "missing_data": [], "suggest_directed_assessment": False}
+    return {**reply, **overrides}
+
+
+def test_progress_analysis_separates_confirmed_and_provisional_results(emily, llm):
+    adapter = llm(analysis_reply())
+    result = completed(emily.post("/requests", {"type": "review_progress", "student_id": key("student-ivy"), "input": {}}))
+    text = result["recommendation"]
+    assert "initial B2 (confirmed, 2026-09-16)" in text
+    assert "milestone B1–B2 (provisional, awaiting teacher review, 2026-10-10)" in text
+    assert "Missing data" not in text and result["missing_data"] == []
+    sent = adapter.calls[0]["messages"][0].content
+    assert '"provisional": true' in sent and "Ivy" not in sent
+    record = learning.history(learning.student(key("student-ivy")), kinds=("progress_analysis",)).last()
+    assert record.payload["analysis"].startswith("Stage 2")
+
+
+def test_progress_analysis_flags_missing_data(emily, llm):
+    llm(analysis_reply(missing_data=["no speaking sample", "no teacher observation"], suggest_directed_assessment=True))
+    result = completed(emily.post("/requests", {"type": "review_progress", "student_id": key("student-sophia"), "input": {}}))
+    assert result["missing_data"] == ["no active learning plan", "no lesson feedback yet", "no teacher observation", "no speaking sample"]
+    assert "Missing data: no active learning plan;" in result["recommendation"]
+    assert result["recommendation"].endswith("request a directed assessment before changing the plan.")
+
+
+def test_recommendations_build_on_the_latest_analysis(emily, llm):
+    adapter = llm(
+        analysis_reply(),
+        {"recommendations": [f"Change {n}" for n in range(1, 7)], "evidence": ["weak area"]},
+    )
+    completed(emily.post("/requests", {"type": "review_progress", "student_id": key("student-ivy"), "input": {}}))
+    result = completed(emily.post("/requests", {"type": "recommend_plan", "student_id": key("student-ivy"), "input": {}}))
+    assert result["recommendations"] == ["Change 1", "Change 2", "Change 3", "Change 4"]  # at most four
+    assert result["recommendation"].startswith("1. Change 1\n2. Change 2")
+    assert result["recommendation"].endswith("plan version 2 is already waiting for your review.")
+    assert "latest_progress_analysis" in adapter.calls[1]["messages"][0].content
+
+
+def test_recommendations_need_at_least_one_item(emily, llm):
+    llm({"recommendations": ["  "], "evidence": []})
+    response = emily.post("/requests", {"type": "recommend_plan", "student_id": key("student-ivy"), "input": {}})
+    assert response.status_code == 422 and response.json()["error"]["code"] == "invalid_llm_output"
+
+
+def test_unassigned_teacher_cannot_request_an_analysis():
+    from django.test import Client
+
+    from access_control.identity import services as identity
+    from tests.conftest import Api
+
+    identity.create_user(name="Tom", email="tom@example.com", password="longenough", role="teacher")
+    tom = Api(Client()).login("tom@example.com", "longenough")
+    response = tom.post("/requests", {"type": "review_progress", "student_id": key("student-ivy"), "input": {}})
+    assert response.status_code == 403

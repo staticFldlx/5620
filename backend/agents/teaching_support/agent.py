@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from agents.runtime import AgentResult, AgentStatus, AIAgent, LoopSpec, TaskInput
 from agents.runtime.loop import parse_json_object
+from domain.common import iso
 from domain.governance import services as governance_services
 from domain.learning import selectors as learning
 from domain.learning import services as learning_services
@@ -34,6 +35,7 @@ CONFIDENCE_WEIGHTS = {"model": 0.5, "grounding": 0.3, "scope": 0.2}
 UNCITED_GROUNDING = 0.6  # in-scope general-knowledge answers are allowed but count for less
 NOT_CITED_NOTE = "(Not based on course materials.)"
 LOOP_MAX_STEPS = 4
+MAX_RECOMMENDATIONS = 4
 NO_MATERIALS_REPLY = (
     "There are no approved materials for your current stage yet. The gap has been logged so suitable materials "
     "can be added. You can still ask me questions about this stage."
@@ -247,23 +249,58 @@ class TeachingSupportAgent(AIAgent):
 
     # --- teacher-facing (UC06, UC07, UC08) --------------------------------------------------------
     def _analyze_progress(self, task: TaskInput) -> AgentResult:
+        """UC06 step 3: progress analysis for the assigned teacher; missing data is flagged (3a)."""
         student = self._student(task)
         if student is None:
             return _failed("student_not_found", "Student not found.")
-        analysis = self._ask(prompts.PROGRESS, ProgressAnalysis, context=context.teacher_view(student))
+        view = context.teacher_view(student)
+        gaps = context.missing_progress_data(view)
+        analysis = self._ask(prompts.PROGRESS, ProgressAnalysis, context=view, request={"known_gaps": gaps} if gaps else None)
         if analysis is None:
             return self._llm_failed()
-        return _ok({"recommendation": analysis.analysis, "evidence": analysis.evidence}, summary="Compiled a progress analysis.")
+        missing = list(dict.fromkeys(gaps + [item.strip() for item in analysis.missing_data if item.strip()]))
+        directed = analysis.suggest_directed_assessment or not any(not a["provisional"] for a in view["assessments"])
+        lines = [analysis.analysis.strip(), context.results_summary(view)]
+        if missing:
+            lines.append(f"Missing data: {'; '.join(missing)}.")
+        if directed:
+            lines.append("Suggestion: request a directed assessment before changing the plan.")
+        self.runtime.note("progress_analysis", missing_data=missing, suggest_directed_assessment=directed)
+        learning_services.append_history(
+            AGENT_ID,
+            student=student,
+            kind="progress_analysis",
+            payload={
+                "analysis": analysis.analysis,
+                "evidence": analysis.evidence,
+                "missing_data": missing,
+                "suggest_directed_assessment": directed,
+                "prompt": prompts.PROGRESS.id,
+            },
+        )
+        result = {"recommendation": "\n".join(line for line in lines if line), "evidence": analysis.evidence, "missing_data": missing, "suggest_directed_assessment": directed}
+        return _ok(result, summary="Compiled a progress analysis.")
 
     def _recommend_adjustments(self, task: TaskInput) -> AgentResult:
+        """UC07 step 2: suggestions only; the plan changes when the teacher asks for a revision."""
         student = self._student(task)
         if student is None:
             return _failed("student_not_found", "Student not found.")
-        advice = self._ask(prompts.RECOMMEND, PlanRecommendations, context=context.teacher_view(student))
+        view = context.teacher_view(student)
+        latest = learning.history(student, kinds=("progress_analysis",)).last()
+        if latest is not None:  # UC07 includes UC06: build on the latest analysis
+            view["latest_progress_analysis"] = {"date": iso(latest.created_at), "analysis": latest.payload.get("analysis", ""), "missing_data": latest.payload.get("missing_data", [])}
+        advice = self._ask(prompts.RECOMMEND, PlanRecommendations, context=view)
         if advice is None:
             return self._llm_failed()
-        text = "\n".join(f"{n}. {item}" for n, item in enumerate(advice.recommendations, start=1))
-        return _ok({"recommendation": text, "evidence": advice.evidence}, summary="Recommended plan adjustments.")
+        items = [item.strip() for item in advice.recommendations if item.strip()][:MAX_RECOMMENDATIONS]
+        if not items:
+            return _failed("invalid_llm_output", "The AI reply had no recommendations. Please try again.")
+        lines = [f"{n}. {item}" for n, item in enumerate(items, start=1)]
+        if view["pending_plan"]:
+            lines.append(f"Note: plan version {view['pending_plan']['version']} is already waiting for your review.")
+        result = {"recommendation": "\n".join(lines), "evidence": advice.evidence, "recommendations": items}
+        return _ok(result, summary="Recommended plan adjustments.")
 
     def _lesson_briefing(self, task: TaskInput) -> AgentResult:
         lesson = self._lesson(task)

@@ -85,9 +85,10 @@ PROGRESS = Prompt(
     BASE
     + """
 Task: write a progress analysis for the learner's teacher (UC06): current stage and milestone, recent results, weak areas, recent questions.
-Assessments with status pending_review are provisional: say so and do not treat them as confirmed.
-List missing or incomplete data in missing_data, and set suggest_directed_assessment when the evidence is too weak to judge progress.
-evidence: short references to the records you used. Keep the analysis under 150 words.""",
+Assessments marked provisional are not confirmed by a teacher: say so and do not treat them as confirmed.
+<request> may list gaps the platform already found; do not repeat them in missing_data, add only other missing or incomplete data.
+Set suggest_directed_assessment when the evidence is too weak to judge progress.
+evidence: short references to the records you used. Keep the analysis under 100 words.""",
 )
 
 RECOMMEND = Prompt(
@@ -95,7 +96,9 @@ RECOMMEND = Prompt(
     BASE
     + """
 Task: recommend 2 to 4 adjustments to the learner's plan or teaching strategy for the teacher (UC07).
-Each recommendation states what to change, why, and the evidence from <context>. You do not change the plan yourself.""",
+Each recommendation is one sentence of at most 30 words: what to change, why, and the evidence from <context>.
+You do not change the plan yourself.
+Build on latest_progress_analysis when it is present. If a plan revision is already waiting for review (pending_plan), take it into account.""",
 )
 
 BRIEFING = Prompt(
