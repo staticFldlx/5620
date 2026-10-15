@@ -106,3 +106,87 @@ def test_unknown_citations_are_dropped(emily, llm):
     llm({"briefing": "Use the guide.", "material_ids": [key("M-01"), "made-up-id"]})
     briefing = completed(emily.post("/requests", {"type": "lesson_briefing", "input": {"lesson_id": key("L-018")}}))
     assert [ref["material_id"] for ref in briefing["source_refs"]] == [key("M-01")]
+
+
+# --- T4: answer_question confidence, citations and escalation ----------------------------------
+def explain_reply(**overrides) -> dict:
+    reply = {"answer": "Explain what the evidence shows, then link it to the claim.", "cited_material_ids": [key("M-01")], "self_confidence": 0.9, "in_scope": True, "needs_teacher": False, "reason": "Covered by the guide."}
+    return {**reply, **overrides}
+
+
+def ask(api, question="How do I link evidence to my claim?"):
+    response = api.post("/requests", {"type": "explain", "input": {"question": question}})
+    assert response.status_code == 200, response.content
+    return response.json()
+
+
+def test_grounded_answer_completes_with_sources(ivy, llm):
+    llm(explain_reply())
+    envelope = ask(ivy)
+    interaction = envelope["result"]["interaction"]
+    assert envelope["status"] == "completed" and interaction["confidence"] == 0.95
+    assert [ref["material_id"] for ref in interaction["source_refs"]] == [key("M-01")]
+    assert not interaction["answer"].endswith("(Not based on course materials.)")
+
+
+def test_in_scope_answer_without_material_is_marked(ivy, llm):
+    llm(explain_reply(cited_material_ids=["made-up-id"]))  # unknown ids are dropped
+    interaction = ask(ivy)["result"]["interaction"]
+    assert interaction["status"] == "completed" and interaction["source_refs"] == []
+    assert interaction["answer"].endswith("(Not based on course materials.)") and interaction["confidence"] == 0.83
+
+
+@pytest.mark.parametrize(
+    ("reply", "reason", "confidence"),
+    [
+        (explain_reply(needs_teacher=True, reason="Citing an unpublished recording needs permission."), "needs_teacher", 0.95),
+        (explain_reply(in_scope=False, cited_material_ids=[], reason="Asks about tax law."), "out_of_scope", 0.63),
+        (explain_reply(self_confidence=0.3), "low_confidence", 0.65),
+    ],
+)
+def test_escalation_reasons(ivy, llm, reply, reason, confidence):
+    from domain.governance.models import EscalationCase
+
+    llm(reply)
+    envelope = ask(ivy)
+    interaction = envelope["result"]["interaction"]
+    assert envelope["status"] == "escalated" and interaction["status"] == "escalated"
+    assert "Your teacher will review" in interaction["answer"] and interaction["source_refs"] == []
+    case = EscalationCase.objects.get(pk=envelope["result"]["review_id"])
+    assert (case.subject_type, case.subject_id, case.assignee.email) == ("question", interaction["id"], "emily.walker@example.com")
+    assert case.task.reason == reason and case.confidence == confidence
+    entry = learning.history_entry(interaction["id"])
+    assert entry.escalated and entry.payload["draft_answer"]
+
+
+def test_teacher_answer_reaches_the_student(ivy, emily, llm):
+    llm(explain_reply(needs_teacher=True))
+    result = ask(ivy, "Can I quote a private email from my lecturer?")["result"]
+    decided = emily.post(f"/reviews/{result['review_id']}/decision", {"action": "answer", "note": "Ask the speaker for written permission first."})
+    assert decided.status_code == 200
+    interaction = next(i for i in ivy.get("/workspace").json()["interactions"] if i["id"] == result["interaction"]["id"])
+    assert interaction["answer"] == "Ask the speaker for written permission first." and interaction["status"] == "completed"
+
+
+def test_model_failure_escalates_instead_of_failing(ivy, llm):
+    def down(**_):
+        raise LLMError("HTTP 503")
+
+    llm(down)
+    envelope = ask(ivy)
+    assert envelope["status"] == "escalated"
+    entry = learning.history_entry(envelope["result"]["interaction"]["id"])
+    assert entry.payload["reason"] == "llm_unavailable" and entry.confidence is None
+
+
+def test_confidence_decision_is_traced(ivy, alex, llm):
+    llm(explain_reply())
+    request_id = ask(ivy)["id"]
+    steps = alex.get(f"/requests/{request_id}/trace").json()["tasks"][0]["trace"]
+    decision = next(step for step in steps if step.get("decision") == "confidence")
+    assert decision["signals"] == {"model": 0.9, "grounding": 1.0, "scope": 1.0} and decision["escalate"] is False
+
+
+def test_offline_permission_question_is_escalated(ivy):
+    envelope = ask(ivy, "May I cite an unpublished seminar recording?")
+    assert envelope["status"] == "escalated"

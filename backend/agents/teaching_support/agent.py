@@ -22,6 +22,19 @@ from .schemas import ExplainOutput, LessonBriefing, MaterialDraft, PlanRecommend
 
 AGENT_ID = "teaching_support"
 
+# Answer confidence (UC04): the model's own estimate, whether a provided material backs the answer,
+# and whether the question is in scope. The escalation threshold itself is the shared one.
+CONFIDENCE_WEIGHTS = {"model": 0.5, "grounding": 0.3, "scope": 0.2}
+UNCITED_GROUNDING = 0.6  # in-scope general-knowledge answers are allowed but count for less
+NOT_CITED_NOTE = "(Not based on course materials.)"
+HOLDING_REPLY = {
+    "needs_teacher": "This question needs your teacher's decision. Your teacher will review it and reply here.",
+    "out_of_scope": "This question is outside your current English learning plan. Your teacher will review it and reply here.",
+    "low_confidence": "I'm not confident enough to answer this one. Your teacher will review it and reply here.",
+    "llm_unavailable": "I couldn't answer right now. Your teacher will review your question and reply here.",
+    "invalid_llm_output": "I couldn't answer right now. Your teacher will review your question and reply here.",
+}
+
 
 class TeachingSupportAgent(AIAgent):
     agent_id = AGENT_ID
@@ -46,6 +59,7 @@ class TeachingSupportAgent(AIAgent):
 
     # --- student-facing (UC04, UC05) ------------------------------------------------------------
     def _answer_question(self, task: TaskInput) -> AgentResult:
+        """UC04: answer at the learner's level with sources; escalate when unsure, out of scope or sensitive (AR13)."""
         student = self._student(task)
         if student is None:
             return _failed("student_not_found", "Student not found.")
@@ -53,16 +67,65 @@ class TeachingSupportAgent(AIAgent):
         materials = context.stage_materials(student)
         self.runtime.note("materials_selected", material_ids=[m["id"] for m in materials])
         output = self._ask(prompts.EXPLAIN, ExplainOutput, context=context.learner(student), materials=materials, student_input=question)
+        return self._answer_from(student, question, output, materials)
+
+    def _answer_from(self, student: Any, question: str, output: ExplainOutput | None, materials: list[dict]) -> AgentResult:
+        """Shared by the single-call and loop modes: citation check, confidence, escalation, history record."""
         if output is None:
-            return self._llm_failed()
+            reason = self._llm_failure_reason()
+            return self._escalate_question(
+                student,
+                question,
+                reason=reason,
+                trigger="The AI service could not answer this question.",
+                confidence=None,
+                payload={"answer": HOLDING_REPLY[reason]},
+            )
         refs = _refs(output.cited_material_ids, materials)
+        answer = output.answer.strip()
+        if not refs:
+            answer = f"{answer} {NOT_CITED_NOTE}"
+        signals = {
+            "model": min(max(output.self_confidence, 0.0), 1.0),
+            "grounding": 1.0 if refs else UNCITED_GROUNDING,
+            "scope": 1.0 if output.in_scope else 0.0,
+        }
+        confidence = self.runtime.calculate_confidence(signals, CONFIDENCE_WEIGHTS)
+        if output.needs_teacher:
+            reason, trigger = "needs_teacher", f"Needs a teacher's decision: {output.reason or 'sensitive question'}"
+        elif not output.in_scope:
+            reason, trigger = "out_of_scope", f"Outside the learning scope: {output.reason or 'not an English-learning question'}"
+        elif self.runtime.is_low_confidence(confidence):
+            reason, trigger = "low_confidence", f"Confidence {confidence:.2f} is below the review threshold."
+        else:
+            reason = trigger = ""
+        self.runtime.note("confidence", signals=signals, confidence=confidence, cited=[r["material_id"] for r in refs], escalate=bool(reason), reason=reason or None)
+        payload = {"answer": answer, "source_refs": refs}
+        if reason:
+            # the learner sees a holding reply, not an unconfirmed AI answer; the draft is kept for the record
+            payload = {"answer": HOLDING_REPLY[reason], "draft_answer": answer, "draft_source_refs": refs}
+            return self._escalate_question(student, question, reason=reason, trigger=trigger, confidence=confidence, payload=payload)
         entry = learning_services.append_history(
             AGENT_ID,
             student=student,
             kind="explain",
-            payload={"question": question, "answer": output.answer, "source_refs": refs, "prompt": prompts.EXPLAIN.id},
+            payload={"question": question, **payload, "prompt": prompts.EXPLAIN.id},
+            confidence=confidence,
         )
-        return _ok({"interaction": interaction_view(entry)}, summary="Answered a learning question.")
+        return _ok({"interaction": interaction_view(entry)}, summary="Answered a learning question.", confidence=confidence)
+
+    def _escalate_question(self, student: Any, question: str, *, reason: str, trigger: str, confidence: float | None, payload: dict) -> AgentResult:
+        """Record the question as escalated and hand it to the teacher; the teacher's answer is overlaid later."""
+        entry = learning_services.append_history(
+            AGENT_ID,
+            student=student,
+            kind="explain",
+            payload={"question": question, "source_refs": [], **payload, "reason": reason, "prompt": prompts.EXPLAIN.id},
+            confidence=confidence,
+            escalated=True,
+        )
+        control = {"summary": "Escalated a learning question to the teacher.", "subject_type": "question", "subject_id": str(entry.pk), "trigger": trigger}
+        return AgentResult(AgentStatus.NEEDS_ESCALATION, {"result": {"interaction": interaction_view(entry)}, **control}, confidence=confidence, reason=reason)
 
     def _retrieve_material(self, task: TaskInput) -> AgentResult:
         student = self._student(task)
@@ -184,9 +247,12 @@ class TeachingSupportAgent(AIAgent):
         self.runtime.note("prompt", id=prompt.id)
         return self.runtime.structured(prompt.system, [prompts.user_message(**sections)], schema, tier=prompt.tier, max_tokens=prompt.max_tokens)
 
-    def _llm_failed(self) -> AgentResult:
+    def _llm_failure_reason(self) -> str:
         unavailable = any(step.get("step") == "llm" and step.get("stop") == "error" for step in self.runtime.trace)
-        if unavailable:
+        return "llm_unavailable" if unavailable else "invalid_llm_output"
+
+    def _llm_failed(self) -> AgentResult:
+        if self._llm_failure_reason() == "llm_unavailable":
             return _failed("llm_unavailable", "The AI service is not available right now. Please try again later.")
         return _failed("invalid_llm_output", "The AI reply could not be used. Please try again.")
 
