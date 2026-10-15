@@ -29,17 +29,33 @@ python -m venv .venv
 | `python -m pytest` | 全部测试（不调用真实 LLM，不需要 API key） |
 | `python manage.py run_agent_worker` | `AGENT_TASK_EXECUTION=worker` 时的串行 worker |
 | `python manage.py ingest_materials` | 导入检索语料（`RETRIEVAL_BACKEND=none` 时不做任何事） |
+| `python manage.py check_llm` | 测试当前 LLM 接口支持哪些能力，并给出 `LLM_CAPABILITIES` 的建议值 |
 | `python manage.py makemigrations --check` | 检查模型改动是否都有 migration |
 
 ## 配置
 
 全部从环境变量读取。复制 `.env.example` 为 `.env` 后填写（`.env` 不提交，也不放进上传到 Canvas 的源码包）。常用项：
 
-- `LLM_PROVIDER`：`fake`（离线）或 `school`。用 `school` 时还要填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL_*`，这三项按 OpenAI 兼容接口填写。
+- `LLM_PROVIDER`：`fake`（离线）或 `openai`（任何 OpenAI 兼容接口，`school` 是它的别名）。用 `openai` 时还要填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL_*`，见下一节。
 - `AGENT_TASK_EXECUTION`：`inline`（默认，同步返回）或 `worker`。
 - `RETRIEVAL_BACKEND`：目前只实现了 `none`。
 - `CORS_ALLOWED_ORIGINS`：前端开发服务器的地址。
 - `INTAKE_TEACHER_EMAIL`：学生还没有教师时，学习类复核交给这位教师。
+
+## 切换 LLM 接口
+
+agent 只通过 runtime 调用 LLM，换接口只改 `.env`，不改代码。`.env.example` 里有两套示例：
+
+- **Google Gemini**（开发和云端默认）：用 AI Studio 的免费 key，走 Gemini 的 OpenAI 兼容端点，在哪里都能访问。
+- **ELEC5620 课程代理**（`campus-qwen`）：必须先连 USYD VPN，云端主机访问不到。
+
+改完运行 `python manage.py check_llm`。它会逐项测试纯文本、JSON schema 输出和工具调用，并打印 `LLM_CAPABILITIES` 应该填的值。接口不支持的能力，runtime 会自动改用提示词要求输出 JSON，agent 代码不用改。
+
+**数据外发**（规范 8.6）：
+
+- 发给外部接口的只有完成任务必需的字段，不发送姓名和邮箱。
+- Gemini 免费层的输入可能被 Google 用于改进产品，这一点要写进报告。
+- API key 只放在 `.env` 里，不进仓库，也不进 Canvas 源码包。
 
 ## 部署（只做到能部署）
 

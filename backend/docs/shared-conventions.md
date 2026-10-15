@@ -122,7 +122,7 @@ class PlanningAgent(AIAgent):          # 放在 agents/planning/agent.py，类�
 ### 2.2 LLM 适配器
 
 - **FakeAdapter**：按脚本返回结果。脚本的每一步可以是文本、dict（转成 JSON 文本）、`LLMResponse`，或 `tool_call(name, args)`。测试和 CI 都用它。
-- **SchoolAdapter**：按 OpenAI 兼容的 `/chat/completions` 协议实现，只用标准库 urllib。
+- **SchoolAdapter**：按 OpenAI 兼容的 `/chat/completions` 协议实现，只用标准库 urllib。`LLM_PROVIDER=openai`（或别名 `school`）时使用，Gemini 和课程代理都走它。换接口后先运行 `python manage.py check_llm`，确认它支持哪些能力。
   - 支持超时；遇到 408/409/425/429/5xx 时退避重试 2 次。
   - `max_tokens` 和 `refused` 当失败处理。
   - 用 `LLM_CAPABILITIES` 声明接口支持哪些能力（`tools`、`json_schema`、`embeddings`）。未声明的能力由 runtime 降级为用提示词要求输出 JSON，agent 代码不用改。
