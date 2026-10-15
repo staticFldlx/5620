@@ -120,7 +120,7 @@ WORKSPACE_LIST_LIMIT = int(env("WORKSPACE_LIST_LIMIT", "50"))
 INTAKE_TEACHER_EMAIL = env("INTAKE_TEACHER_EMAIL", "emily.walker@example.com")
 
 # --- LLM ------------------------------------------------------------------
-LLM_PROVIDER = env("LLM_PROVIDER", "fake")  # school | fake
+LLM_PROVIDER = env("LLM_PROVIDER", "fake")  # openai | school (alias) | fake
 LLM_BASE_URL = env("LLM_BASE_URL")
 LLM_API_KEY = env("LLM_API_KEY")
 LLM_MODEL_FAST = env("LLM_MODEL_FAST")
