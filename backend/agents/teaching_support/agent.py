@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 
 from agents.runtime import AgentResult, AgentStatus, AIAgent, LoopSpec, TaskInput
 from agents.runtime.loop import parse_json_object
+from domain.governance import services as governance_services
 from domain.learning import selectors as learning
 from domain.learning import services as learning_services
 from domain.learning.views import interaction_view, material_view
@@ -33,6 +34,10 @@ CONFIDENCE_WEIGHTS = {"model": 0.5, "grounding": 0.3, "scope": 0.2}
 UNCITED_GROUNDING = 0.6  # in-scope general-knowledge answers are allowed but count for less
 NOT_CITED_NOTE = "(Not based on course materials.)"
 LOOP_MAX_STEPS = 4
+NO_MATERIALS_REPLY = (
+    "There are no approved materials for your current stage yet. The gap has been logged so suitable materials "
+    "can be added. You can still ask me questions about this stage."
+)
 HOLDING_REPLY = {
     "needs_teacher": "This question needs your teacher's decision. Your teacher will review it and reply here.",
     "out_of_scope": "This question is outside your current English learning plan. Your teacher will review it and reply here.",
@@ -163,20 +168,30 @@ class TeachingSupportAgent(AIAgent):
         return AgentResult(AgentStatus.NEEDS_ESCALATION, {"result": {"interaction": interaction_view(entry)}, **control}, confidence=confidence, reason=reason)
 
     def _retrieve_material(self, task: TaskInput) -> AgentResult:
+        """UC04 2a: approved materials for the current stage, best match first, with a short guide."""
         student = self._student(task)
         if student is None:
             return _failed("student_not_found", "Student not found.")
         question = str(task.payload.get("input", {}).get("question", "")).strip()
-        materials = context.stage_materials(student)
-        guide = self._ask(prompts.RESOURCES, ResourceGuide, context=context.learner(student), materials=materials, student_input=question)
-        if guide is None:
-            return self._llm_failed()
-        ordered = _refs(guide.material_ids, materials) + [context.source_ref(m) for m in materials if m["id"] not in guide.material_ids]
+        learner = context.learner(student)
+        materials = context.rank_materials(context.stage_materials(student), question)
+        if not materials:
+            self._log_corpus_gap("resources", learner["current_stage"])
+            answer, refs = NO_MATERIALS_REPLY, []
+        else:
+            self.runtime.note("materials_ranked", material_ids=[m["id"] for m in materials])
+            guide = self._ask(prompts.RESOURCES, ResourceGuide, context=learner, materials=materials, student_input=question)
+            if guide is None:  # listing materials does not need the model; fall back to a plain guide
+                self.runtime.note("template_fallback", reason=self._llm_failure_reason())
+                answer, refs = _resource_guide(materials, learner["current_stage"]), [context.source_ref(m) for m in materials]
+            else:
+                answer = guide.guide
+                refs = _refs(guide.material_ids, materials) + [context.source_ref(m) for m in materials if m["id"] not in guide.material_ids]
         entry = learning_services.append_history(
             AGENT_ID,
             student=student,
             kind="resources",
-            payload={"question": question, "answer": guide.guide, "source_refs": ordered, "prompt": prompts.RESOURCES.id},
+            payload={"question": question, "answer": answer, "source_refs": refs, "prompt": prompts.RESOURCES.id},
         )
         return _ok({"interaction": interaction_view(entry)}, summary="Listed materials for the current stage.")
 
@@ -200,12 +215,18 @@ class TeachingSupportAgent(AIAgent):
         return _ok({"question": item.question, "item_id": item_id, "source": source}, summary="Created a practice item.")
 
     def _give_feedback(self, task: TaskInput) -> AgentResult:
+        """UC05 step 2 / AR05: instant feedback on light practice. It never changes assessments or the plan."""
         student = self._student(task)
         if student is None:
             return _failed("student_not_found", "Student not found.")
-        answer = str(task.payload.get("input", {}).get("answer", "")).strip()
-        practice = learning.history(student, kinds=("practice",)).last()
-        item = {"question": practice.payload.get("question"), "expected_points": practice.payload.get("expected_points", [])} if practice else None
+        data = task.payload.get("input", {})
+        answer = str(data.get("answer", "")).strip()
+        practices = learning.history(student, kinds=("practice",))
+        # the frontend only sends the answer, so without an item_id the latest practice item is the one answered
+        practice = practices.filter(payload__item_id=data["item_id"]).last() if data.get("item_id") else practices.last()
+        if practice is None:
+            return _failed("no_practice_item", "Start a practice first.")
+        item = {"question": practice.payload.get("question"), "expected_points": practice.payload.get("expected_points", [])}
         feedback = self._ask(prompts.FEEDBACK, PracticeFeedback, context={"level": context.learner(student)["level"]}, practice=item, student_input=answer)
         if feedback is None:
             return self._llm_failed()
@@ -213,7 +234,14 @@ class TeachingSupportAgent(AIAgent):
             AGENT_ID,
             student=student,
             kind="practice_answer",
-            payload={"item_id": practice.payload.get("item_id") if practice else None, "answer": answer, "feedback": feedback.feedback, "prompt": prompts.FEEDBACK.id},
+            payload={
+                "item_id": practice.payload.get("item_id"),
+                "answer": answer,
+                "feedback": feedback.feedback,
+                "met_points": feedback.met_points,
+                "missing_points": feedback.missing_points,
+                "prompt": prompts.FEEDBACK.id,
+            },
         )
         return _ok({"feedback": feedback.feedback}, summary="Gave practice feedback.")
 
@@ -282,6 +310,17 @@ class TeachingSupportAgent(AIAgent):
         self.runtime.note("prompt", id=prompt.id)
         return self.runtime.structured(prompt.system, [prompts.user_message(**sections)], schema, tier=prompt.tier, max_tokens=prompt.max_tokens)
 
+    def _log_corpus_gap(self, request: str, stage: dict | None) -> None:
+        """UC08 3a: report missing material so the Technical Manager can propose a corpus update."""
+        stage_title = stage["title"] if stage else "no plan stage"
+        self.runtime.note("corpus_gap", request=request, stage=stage_title)
+        governance_services.record_audit(
+            AGENT_ID,
+            "teaching_support.corpus_gap",
+            ("plan_stage", stage["number"] if stage else ""),
+            detail={"summary": f"No approved materials for {stage_title} ({request})", "request": request, "topics": (stage or {}).get("topics", [])},
+        )
+
     def _llm_failure_reason(self) -> str:
         unavailable = any(step.get("step") == "llm" and step.get("stop") == "error" for step in self.runtime.trace)
         return "llm_unavailable" if unavailable else "invalid_llm_output"
@@ -299,6 +338,15 @@ class TeachingSupportAgent(AIAgent):
     def _lesson(task: TaskInput) -> Any:
         lesson_id = task.payload.get("input", {}).get("lesson_id") or task.payload.get("context_id")
         return learning.lesson(lesson_id) if lesson_id else None
+
+
+def _resource_guide(materials: list[dict], stage: dict | None) -> str:
+    first = materials[0]
+    text = f"Start with {first['title']} ({first['locator']})"
+    if len(materials) > 1:
+        text += ", then " + ", ".join(m["title"] for m in materials[1:3])
+    stage_part = f" for {stage['title']}" if stage else ""
+    return f"{text}. These are the approved materials{stage_part}."
 
 
 def _refs(ids: list[str], materials: list[dict]) -> list[dict]:

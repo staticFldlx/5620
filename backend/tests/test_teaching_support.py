@@ -261,3 +261,67 @@ def test_loop_tools_only_open_the_learners_own_materials():
 def test_offline_loop_mode_still_cites(ivy, loop_mode):
     interaction = ask(ivy)["result"]["interaction"]
     assert {ref["material_id"] for ref in interaction["source_refs"]} == {key("M-01"), key("M-02")}
+
+
+# --- T6: resources, practice and practice feedback ------------------------------------------------
+def resources(api, question="Find learning resources for my current stage"):
+    return completed(api.post("/requests", {"type": "resources", "input": {"question": question}}))["interaction"]
+
+
+def test_resources_rank_by_question_keywords(ivy, llm):
+    llm({"guide": "Read the seminar example first.", "material_ids": []})
+    interaction = resources(ivy, "seminar discussion examples")
+    assert [ref["material_id"] for ref in interaction["source_refs"]] == [key("M-02"), key("M-01")]
+
+
+def test_resources_fall_back_to_a_plain_guide(ivy, llm, alex):
+    def down(**_):
+        raise LLMError("HTTP 503")
+
+    llm(down)
+    interaction = resources(ivy)
+    assert interaction["answer"].startswith("Start with Academic Argument Guide") and len(interaction["source_refs"]) == 2
+
+
+def test_resources_without_materials_log_a_corpus_gap(llm, alex):
+    from django.test import Client
+
+    from domain.governance.models import AuditLog
+    from tests.conftest import Api
+
+    sophia = Api(Client()).login("sophia.chen@example.com")
+    adapter = llm()  # no script: any model call would fail
+    interaction = resources(sophia, "interview phrases")
+    assert interaction["source_refs"] == [] and "no approved materials" in interaction["answer"]
+    assert adapter.calls == []
+    gap = AuditLog.objects.get(action="teaching_support.corpus_gap")
+    assert gap.actor == "teaching_support" and "Core communication" in gap.detail["summary"]
+    assert any(entry["action"] == "teaching_support.corpus_gap" for entry in alex.get("/workspace").json()["operations"]["audit"])
+
+
+def test_feedback_targets_the_practice_item_and_changes_nothing_else(ivy, llm):
+    from domain.learning.models import LearningPlan, ProficiencyProfile
+
+    def snapshot():
+        return list(ProficiencyProfile.objects.values_list("id", "status")), list(LearningPlan.objects.values_list("id", "status"))
+
+    before = snapshot()
+    adapter = llm(
+        {"question": "Q1 link evidence", "expected_points": ["p1"], "material_id": ""},
+        {"question": "Q2 rebuttal", "expected_points": ["p2"], "material_id": ""},
+        {"feedback": "Good link.", "met_points": ["p1"], "missing_points": []},
+    )
+    first = completed(ivy.post("/requests", {"type": "practice", "input": {}}))
+    completed(ivy.post("/requests", {"type": "practice", "input": {"focus": "rebuttals"}}))
+    feedback = completed(ivy.post("/requests", {"type": "practice_answer", "input": {"answer": "My answer", "item_id": first["item_id"]}}))
+    assert feedback == {"feedback": "Good link."}
+    assert "Q1 link evidence" in adapter.calls[2]["messages"][0].content
+    answer = learning.history(learning.student(key("student-ivy")), kinds=("practice_answer",)).last()
+    assert answer.payload["item_id"] == first["item_id"] and answer.payload["met_points"] == ["p1"]
+    assert snapshot() == before  # light practice never changes formal results or the plan (AR05)
+
+
+def test_feedback_without_practice_fails(ivy):
+    response = ivy.post("/requests", {"type": "practice_answer", "input": {"answer": "hello"}})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "no_practice_item" and response.json()["message"] == "Start a practice first."

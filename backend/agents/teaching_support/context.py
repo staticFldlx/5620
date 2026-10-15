@@ -7,12 +7,19 @@ approved lesson materials of the learner's current plan stage.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from domain.common import iso
 from domain.learning import selectors as learning
 
 MATERIAL_CHARS = 1200
+WORD = re.compile(r"[a-z]{3,}")
+# words that say nothing about which material fits (the default resources question in the frontend uses several)
+STOPWORDS = frozenset(
+    "the and for with how what can you your are have has this that from about into does should would could "
+    "find learning resources resource current stage materials material help need want some which please".split()
+)
 RECENT_QUESTIONS = 5
 RECENT_FEEDBACK = 3
 
@@ -133,3 +140,20 @@ def stage_materials(student: Any, *, limit: int = 5) -> list[dict]:
 
 def lesson_materials(lesson: Any) -> list[dict]:
     return [material_entry(m) for m in learning.materials_for_lessons([lesson], approved_only=True)]
+
+
+def keywords(text: str) -> set[str]:
+    return {word for word in WORD.findall(text.lower()) if word not in STOPWORDS}
+
+
+def rank_materials(materials: list[dict], question: str) -> list[dict]:
+    """Order materials by how many question keywords they contain; ties keep the stage order."""
+    words = keywords(question)
+    if not words:
+        return list(materials)
+
+    def score(material: dict) -> int:
+        text = f"{material['title']} {material['locator']} {material['content']}".lower()
+        return sum(1 for word in words if word in text)
+
+    return sorted(materials, key=score, reverse=True)

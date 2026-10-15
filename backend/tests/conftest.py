@@ -26,8 +26,12 @@ def django_db_setup(django_db_setup, django_db_blocker):
 
 @pytest.fixture(autouse=True)
 def _defaults(settings):
+    """Tests never depend on a developer's backend/.env (LLM key, agent modes, threshold)."""
     settings.AGENT_TASK_EXECUTION = "inline"
     settings.LLM_PROVIDER = "fake"
+    settings.AGENT_CONFIDENCE_THRESHOLD = 0.70
+    settings.TEACHING_SUPPORT_EXPLAIN_MODE = "single"
+    settings.TEACHING_SUPPORT_LOOP_BUDGET_SECONDS = 6
     registry.reset_caches()
     yield
     registry.reset_caches()
