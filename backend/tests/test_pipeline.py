@@ -59,7 +59,8 @@ def test_ok_result_completes_and_matches_the_contract(stubs):
     assert task.status == AgentTask.Status.SUCCEEDED and task.confidence == 0.9
 
 
-def test_missing_agent_fails_with_agent_not_implemented():
+def test_missing_agent_fails_with_agent_not_implemented(settings):
+    settings.AGENT_REGISTRY = {**settings.AGENT_REGISTRY, "teaching_support": "agents.missing.agent.MissingAgent"}
     request = submit("explain", question="?")
     assert request.status == ServiceRequest.Status.FAILED
     assert request.error["code"] == "agent_not_implemented"

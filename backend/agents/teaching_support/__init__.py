@@ -1,5 +1,5 @@
-"""Teaching Assistant agent (ITeachingSupport) - owned by the teaching support owner.
+"""AI Teaching Assistant (ITeachingSupport) - agents.teaching_support.agent.TeachingSupportAgent.
 
-Expected entry point: agents.teaching_support.agent.TeachingSupportAgent (see AGENT_REGISTRY).
-Until it exists, its tasks fail with reason agent_not_implemented. See docs/shared-conventions.md.
+Handles the eight teaching_support.* task types (answering questions, resources, practice,
+progress analysis, plan recommendations, lesson briefings, material drafts) without RAG.
 """
