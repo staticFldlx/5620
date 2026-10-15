@@ -86,7 +86,8 @@ def test_founder_workspace_has_operations_only(alex):
 
 
 # --- requests -------------------------------------------------------------------------------------
-def test_request_failure_is_422_with_envelope(ivy):
+def test_request_failure_is_422_with_envelope(ivy, settings):
+    settings.AGENT_REGISTRY = {**settings.AGENT_REGISTRY, "teaching_support": "agents.missing.agent.MissingAgent"}
     response = ivy.post("/requests", {"type": "explain", "input": {"question": "?"}})
     assert response.status_code == 422 and error_code(response) == "agent_not_implemented"
     envelope = response.json()["request"]

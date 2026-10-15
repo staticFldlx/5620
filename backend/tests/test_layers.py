@@ -29,10 +29,11 @@ def imports(path: Path) -> set[str]:
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 base = package.split(".")
-                base = base[: len(base) - (node.level - 1)]
-                found.add(".".join(base + ([node.module] if node.module else [])))
-            elif node.module:
-                found.add(node.module)
+                module = ".".join(base[: len(base) - (node.level - 1)] + ([node.module] if node.module else []))
+            else:
+                module = node.module or ""
+            # record full names so "from domain.learning import selectors" is judged as domain.learning.selectors
+            found.update(f"{module}.{alias.name}" for alias in node.names)
     return found
 
 
@@ -48,8 +49,9 @@ def allowed(source: str, target: str) -> bool:
             return True
         if target.startswith("agents."):
             return target.startswith(("agents.runtime", f"agents.{own}"))
+        parts = target.split(".")
         return target.startswith(("domain.common", "infrastructure.retrieval")) or (
-            top == "domain" and target.split(".")[-1] in ("selectors", "services", "views", "models")
+            top == "domain" and len(parts) >= 3 and parts[2] in ("selectors", "services", "views", "models")
         )
     if source.startswith("orchestration"):
         return top not in ("access_control",) and not any(target.startswith(f"agents.{a}") for a in AGENT_PACKAGES)
@@ -89,3 +91,6 @@ def test_rule_checker_catches_violations():
     assert not allowed("agents.runtime.runtime", "django.conf")
     assert not allowed("domain.learning.services", "orchestration.task_queue.dispatcher")
     assert allowed("agents.planning.agent", "domain.learning.selectors")
+    assert allowed("agents.planning.agent", "domain.learning.views.plan_view")
+    assert not allowed("agents.planning.agent", "domain.learning.apps.LearningConfig")
+    assert not allowed("agents.planning.agent", "orchestration.task_queue.dispatcher")
