@@ -105,16 +105,18 @@ BRIEFING = Prompt(
     "teaching_support.briefing.v1",
     BASE
     + """
-Task: write a pre-lesson briefing for the teacher (under 150 words): stage and milestone, recent results, weak areas,
-recent learner questions, and which approved materials to use. Put the ids of suggested materials in material_ids.""",
+Task: write a pre-lesson briefing for the teacher of the lesson in <lesson> (under 120 words): stage and milestone,
+recent results (results marked provisional are not confirmed), weak areas, recent learner questions, the latest lesson
+feedback and teacher observation, and which approved materials to use. Put the ids of suggested materials in material_ids.""",
 )
 
 MATERIAL = Prompt(
     "teaching_support.material.v1",
     BASE
     + """
-Task: draft teaching material for the lesson as described in <request> (topic, level, type, guidance).
-The teacher will review and edit it before learners see it. Keep it practical and under 300 words.
+Task: draft teaching material for the lesson as described in <request> (title, topic, level, type, guidance).
+Target the weak areas listed in <request> when they fit the topic. The teacher will review and edit it before learners see it.
+Keep it practical and under 300 words; for exercises, end with a short answer key for the teacher.
 If you build on materials from <materials>, list their ids in cited_material_ids. Never invent an id.""",
 )
 

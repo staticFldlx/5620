@@ -151,7 +151,7 @@ def lesson_info(lesson: Any) -> dict:
         "starts_at": iso(lesson.starts_at),
         "status": lesson.status,
         "stage": {"number": stage.stage_number, "title": stage.title, "topics": list(stage.topics or []), "milestone": stage.milestone} if stage else None,
-        "last_feedback": learning.latest_lesson_feedback(lesson),
+        "last_feedback": redact(learning.latest_lesson_feedback(lesson), lesson.student),
     }
 
 
@@ -179,6 +179,14 @@ def stage_materials(student: Any, *, limit: int = 5) -> list[dict]:
 
 def lesson_materials(lesson: Any) -> list[dict]:
     return [material_entry(m) for m in learning.materials_for_lessons([lesson], approved_only=True)]
+
+
+def lesson_and_stage_materials(lesson: Any, *, limit: int = 5) -> list[dict]:
+    """The lesson's own approved materials first, then the learner's current-stage materials."""
+    found = {m["id"]: m for m in lesson_materials(lesson)}
+    for material in stage_materials(lesson.student, limit=limit):
+        found.setdefault(material["id"], material)
+    return list(found.values())[:limit]
 
 
 def keywords(text: str) -> set[str]:

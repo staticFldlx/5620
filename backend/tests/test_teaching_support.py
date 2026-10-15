@@ -384,3 +384,62 @@ def test_unassigned_teacher_cannot_request_an_analysis():
     tom = Api(Client()).login("tom@example.com", "longenough")
     response = tom.post("/requests", {"type": "review_progress", "student_id": key("student-ivy"), "input": {}})
     assert response.status_code == 403
+
+
+# --- T8: lesson briefing and teaching material drafts ---------------------------------------------
+def briefing_for(api, lesson_key):
+    return completed(api.post("/requests", {"type": "lesson_briefing", "input": {"lesson_id": key(lesson_key)}, "context_id": key(lesson_key)}))
+
+
+def test_briefing_uses_the_teacher_records(emily, llm):
+    adapter = llm({"briefing": "Work on explicit evidence links.", "material_ids": [key("M-02"), "made-up-id"]})
+    result = briefing_for(emily, "L-018")
+    assert [ref["material_id"] for ref in result["source_refs"]] == [key("M-02")]
+    sent = adapter.calls[0]["messages"][0].content
+    for expected in ("Building an academic argument", "Explicit evidence links", '"provisional": true', "the learner states a claim"):
+        assert expected in sent
+    assert "Ivy" not in sent
+
+
+def test_briefing_falls_back_to_stage_materials(emily, llm):
+    adapter = llm({"briefing": "Recap the guide.", "material_ids": [key("M-01")]})
+    result = briefing_for(emily, "L-016")  # no materials attached to this lesson
+    assert result["source_refs"][0]["material_id"] == key("M-01")
+    assert key("M-01") in adapter.calls[0]["messages"][0].content
+
+
+def test_material_draft_is_filled_from_the_lesson_and_hidden_until_approved(emily, ivy, llm):
+    adapter = llm({"title": "ignored", "content": "Exercise: add a because clause.\nAnswer key: ...", "cited_material_ids": [key("M-01"), "made-up-id"]})
+    material = completed(emily.post("/requests", {"type": "generate_material", "input": {"title": "Because bridges", "lesson_id": key("L-018")}}))["material"]
+    assert (material["title"], material["status"], material["lesson_id"]) == ("Because bridges", "draft", key("L-018"))
+    assert [ref["material_id"] for ref in material["source_refs"]] == [key("M-01")]
+    request = adapter.calls[0]["messages"][0].content.split("<request>")[1]
+    for expected in ('"topic": "Evidence links, Paragraph structure"', '"level": "B2"', '"type": "exercise"', "Explicit evidence links"):
+        assert expected in request
+    assert ivy.get(f"/materials/{material['id']}").status_code == 404
+    assert emily.patch(f"/materials/{material['id']}", {"content": material["content"], "status": "approved"}).status_code == 200
+    assert ivy.get(f"/materials/{material['id']}").status_code == 200
+    lesson = next(item for item in ivy.get("/workspace").json()["lessons"] if item["id"] == key("L-018"))
+    assert material["id"] in lesson["material_ids"]
+
+
+def test_material_draft_without_any_material_logs_a_gap(emily, llm):
+    from domain.governance.models import AuditLog
+
+    llm({"title": "Intro", "content": "Practise a short self-introduction.", "cited_material_ids": []})
+    material = completed(emily.post("/requests", {"type": "generate_material", "input": {"title": "", "lesson_id": key("L-021")}}))["material"]
+    assert material["title"] == "Core communication practice" and material["source_refs"] == []
+    gap = AuditLog.objects.get(action="teaching_support.corpus_gap")
+    assert gap.detail["request"] == "generate_material"
+
+
+def test_other_teachers_cannot_prepare_the_lesson():
+    from django.test import Client
+
+    from access_control.identity import services as identity
+    from tests.conftest import Api
+
+    identity.create_user(name="Tom", email="tom@example.com", password="longenough", role="teacher")
+    tom = Api(Client()).login("tom@example.com", "longenough")
+    response = tom.post("/requests", {"type": "lesson_briefing", "input": {"lesson_id": key("L-018")}})
+    assert response.status_code == 403

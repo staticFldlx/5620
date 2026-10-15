@@ -303,40 +303,50 @@ class TeachingSupportAgent(AIAgent):
         return _ok(result, summary="Recommended plan adjustments.")
 
     def _lesson_briefing(self, task: TaskInput) -> AgentResult:
+        """UC08 / section 1.2: pre-lesson briefing from the plan, results, weak areas, questions, materials and comments."""
         lesson = self._lesson(task)
         if lesson is None:
             return _failed("lesson_not_found", "Lesson not found.")
-        materials = context.lesson_materials(lesson)
+        materials = context.lesson_and_stage_materials(lesson)
+        self.runtime.note("materials_selected", material_ids=[m["id"] for m in materials])
         briefing = self._ask(
-            prompts.BRIEFING, LessonBriefing, context=context.learner(lesson.student), lesson=context.lesson_info(lesson), materials=materials
+            prompts.BRIEFING, LessonBriefing, context=context.teacher_view(lesson.student), lesson=context.lesson_info(lesson), materials=materials
         )
         if briefing is None:
             return self._llm_failed()
         return _ok({"briefing": briefing.briefing, "source_refs": _refs(briefing.material_ids, materials)}, summary="Prepared a lesson briefing.")
 
     def _generate_material(self, task: TaskInput) -> AgentResult:
+        """UC08: editable draft with sources; only the teacher can approve it for learners (step 4-5)."""
         lesson = self._lesson(task)
         if lesson is None:
             return _failed("lesson_not_found", "Lesson not found.")
         data = task.payload.get("input", {})
         learner = context.learner(lesson.student)
         info = context.lesson_info(lesson)
+        stage = info["stage"] or learner["current_stage"]
+        topics = ", ".join((stage or {}).get("topics", []))
+        # the frontend sends only a title; the rest of the UC08 request comes from the lesson and the learner
+        title = str(data.get("title") or data.get("topic") or (f"{stage['title']} practice" if stage else "Practice material")).strip()
         request = {
-            "title": data.get("title") or data.get("topic") or "",
-            "topic": data.get("topic") or ", ".join((info["stage"] or {}).get("topics", [])),
+            "title": title,
+            "topic": data.get("topic") or topics or title,
             "level": data.get("level") or learner["level"],
             "type": data.get("type") or "exercise",
             "guidance": data.get("guidance") or "",
+            "weak_areas": learner["weak_areas"],
         }
-        materials = context.lesson_materials(lesson)
+        materials = context.lesson_and_stage_materials(lesson)
+        if not materials:
+            self._log_corpus_gap("generate_material", stage)
         draft = self._ask(prompts.MATERIAL, MaterialDraft, context=learner, lesson=info, materials=materials, request=request)
         if draft is None:
             return self._llm_failed()
         material = learning_services.create_material_draft(
             AGENT_ID,
             lesson=lesson,
-            title=request["title"] or draft.title,
-            content=draft.content,
+            title=title,
+            content=draft.content.strip(),
             citations=_refs(draft.cited_material_ids, materials),
             locator="Teacher draft",
         )
