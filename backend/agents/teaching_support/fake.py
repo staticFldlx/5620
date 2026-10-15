@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import re
 
+from django.conf import settings
+
 from agents.runtime import TaskInput
+from agents.runtime.testing import tool_call
 from domain.learning import selectors as learning
 
 from . import context
@@ -21,7 +24,7 @@ def _material_ids(task: TaskInput, limit: int = 2) -> list[str]:
     return [m["id"] for m in context.stage_materials(student)][:limit] if student else []
 
 
-def _replies(task: TaskInput) -> list[dict]:
+def _replies(task: TaskInput) -> list:
     data = task.payload.get("input", {})
     kind = task.task_type.split(".", 1)[1]
     if kind == "answer_question":
@@ -36,16 +39,18 @@ def _replies(task: TaskInput) -> list[dict]:
                     "reason": "Citation permission is a teacher decision.",
                 }
             ]
-        return [
-            {
-                "answer": "Use a short because bridge: state the evidence, explain what it shows, then connect it to your claim.",
-                "cited_material_ids": _material_ids(task),
-                "self_confidence": 0.89,
-                "in_scope": True,
-                "needs_teacher": False,
-                "reason": "Covered by the current stage materials.",
-            }
-        ]
+        cited = _material_ids(task)
+        final = {
+            "answer": "Use a short because bridge: state the evidence, explain what it shows, then connect it to your claim.",
+            "cited_material_ids": cited,
+            "self_confidence": 0.89,
+            "in_scope": True,
+            "needs_teacher": False,
+            "reason": "Covered by the current stage materials.",
+        }
+        if settings.TEACHING_SUPPORT_EXPLAIN_MODE == "loop":  # look things up first, like the real model would
+            return [tool_call("get_student_context"), *(tool_call("read_material", {"material_id": i}, f"read_{i}") for i in cited), final]
+        return [final]
     if kind == "retrieve_material":
         return [
             {
@@ -111,7 +116,7 @@ def _replies(task: TaskInput) -> list[dict]:
     return []
 
 
-def script(task: TaskInput) -> list[dict]:
+def script(task: TaskInput) -> list:
     try:
         return _replies(task)
     except Exception:  # an offline script must never break task execution

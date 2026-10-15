@@ -41,6 +41,17 @@ Task: answer the learner's English-learning question at the learner's level (see
 - Keep the answer under 120 words, with one short example when it helps.""",
 )
 
+EXPLAIN_LOOP = Prompt(
+    "teaching_support.explain_loop.v1",
+    EXPLAIN.system
+    + """
+You can call tools to look things up before answering: get_student_context, list_stage_materials, read_material, recent_questions.
+- Start with get_student_context, then read the materials that fit the question. Only materials you read with read_material may be cited.
+- Use at most 3 tool calls.
+- When you have enough information, reply with only one JSON object with the keys
+  answer, cited_material_ids, self_confidence, in_scope, needs_teacher, reason - no other text.""",
+)
+
 RESOURCES = Prompt(
     "teaching_support.resources.v1",
     BASE

@@ -2,7 +2,9 @@
 
 No RAG: the "retrieval" step selects approved materials of the learner's current stage
 from the database (context.py) and puts them in the prompt. Every task is one structured
-LLM call; writes happen last so a re-queued task stays idempotent (spec 8.5).
+LLM call, except answer_question in loop mode (TEACHING_SUPPORT_EXPLAIN_MODE=loop), where the
+model looks things up with read-only tools first. Writes happen last so a re-queued task
+stays idempotent (spec 8.5).
 """
 
 from __future__ import annotations
@@ -10,15 +12,18 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
+from django.conf import settings
+from pydantic import BaseModel, ValidationError
 
-from agents.runtime import AgentResult, AgentStatus, AIAgent, TaskInput
+from agents.runtime import AgentResult, AgentStatus, AIAgent, LoopSpec, TaskInput
+from agents.runtime.loop import parse_json_object
 from domain.learning import selectors as learning
 from domain.learning import services as learning_services
 from domain.learning.views import interaction_view, material_view
 
 from . import context, fake, prompts
 from .schemas import ExplainOutput, LessonBriefing, MaterialDraft, PlanRecommendations, PracticeFeedback, PracticeItem, ProgressAnalysis, ResourceGuide
+from .tools import ExplainTools
 
 AGENT_ID = "teaching_support"
 
@@ -27,6 +32,7 @@ AGENT_ID = "teaching_support"
 CONFIDENCE_WEIGHTS = {"model": 0.5, "grounding": 0.3, "scope": 0.2}
 UNCITED_GROUNDING = 0.6  # in-scope general-knowledge answers are allowed but count for less
 NOT_CITED_NOTE = "(Not based on course materials.)"
+LOOP_MAX_STEPS = 4
 HOLDING_REPLY = {
     "needs_teacher": "This question needs your teacher's decision. Your teacher will review it and reply here.",
     "out_of_scope": "This question is outside your current English learning plan. Your teacher will review it and reply here.",
@@ -64,8 +70,37 @@ class TeachingSupportAgent(AIAgent):
         if student is None:
             return _failed("student_not_found", "Student not found.")
         question = str(task.payload.get("input", {}).get("question", "")).strip()
+        if settings.TEACHING_SUPPORT_EXPLAIN_MODE == "loop":
+            return self._answer_with_loop(student, question)
         materials = context.stage_materials(student)
         self.runtime.note("materials_selected", material_ids=[m["id"] for m in materials])
+        output = self._ask(prompts.EXPLAIN, ExplainOutput, context=context.learner(student), materials=materials, student_input=question)
+        return self._answer_from(student, question, output, materials)
+
+    def _answer_with_loop(self, student: Any, question: str) -> AgentResult:
+        """The model decides what to read (tool loop); a single call takes over if the loop does not end cleanly."""
+        tools = ExplainTools(student)
+        spec = LoopSpec(
+            system=prompts.EXPLAIN_LOOP.system,
+            tools=tools.specs(),
+            max_steps=LOOP_MAX_STEPS,
+            tier=prompts.EXPLAIN_LOOP.tier,
+            max_tokens=prompts.EXPLAIN_LOOP.max_tokens,
+            time_budget_s=settings.TEACHING_SUPPORT_LOOP_BUDGET_SECONDS,
+        )
+        self.runtime.note("prompt", id=prompts.EXPLAIN_LOOP.id)
+        loop = self.runtime.run_tool_loop(spec, [prompts.user_message(student_input=question)])
+        output = None
+        if loop.stopped == "end":
+            try:
+                output = ExplainOutput.model_validate(parse_json_object(loop.final_text) or {})
+            except ValidationError:
+                output = None
+        if output is not None:
+            self.runtime.note("loop_answered", tool_calls=len(loop.tool_results), materials_read=list(tools.read))
+            return self._answer_from(student, question, output, list(tools.read.values()))
+        self.runtime.note("fallback_to_single", reason=loop.stopped if loop.stopped != "end" else "invalid_final_output", tool_calls=len(loop.tool_results))
+        materials = list(tools.available.values())
         output = self._ask(prompts.EXPLAIN, ExplainOutput, context=context.learner(student), materials=materials, student_input=question)
         return self._answer_from(student, question, output, materials)
 

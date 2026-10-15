@@ -190,3 +190,74 @@ def test_confidence_decision_is_traced(ivy, alex, llm):
 def test_offline_permission_question_is_escalated(ivy):
     envelope = ask(ivy, "May I cite an unpublished seminar recording?")
     assert envelope["status"] == "escalated"
+
+
+# --- T5: loop mode with read-only tools and fallback ------------------------------------------------
+from infrastructure.llm.fake_adapter import tool_call  # noqa: E402
+
+
+def trace_of(api, request_id):
+    return api.get(f"/requests/{request_id}/trace").json()["tasks"][0]["trace"]
+
+
+@pytest.fixture
+def loop_mode(settings):
+    settings.TEACHING_SUPPORT_EXPLAIN_MODE = "loop"
+
+
+def test_loop_reads_materials_before_citing(ivy, alex, llm, loop_mode):
+    adapter = llm(
+        tool_call("get_student_context"),
+        tool_call("read_material", {"material_id": key("M-01")}),
+        json.dumps(explain_reply(cited_material_ids=[key("M-01"), key("M-02")])),  # M-02 was never read
+    )
+    envelope = ask(ivy)
+    interaction = envelope["result"]["interaction"]
+    assert envelope["status"] == "completed"
+    assert [ref["material_id"] for ref in interaction["source_refs"]] == [key("M-01")]
+    assert len(adapter.calls) == 3 and adapter.calls[0]["tools"]
+    assert "Ivy" not in adapter.calls[0]["messages"][0].content  # the question only; context comes from tools
+    steps = trace_of(alex, envelope["id"])
+    assert [s["name"] for s in steps if s["step"] == "tool"] == ["get_student_context", "read_material"]
+    assert any(s.get("decision") == "loop_answered" for s in steps)
+
+
+@pytest.mark.parametrize(
+    ("script", "reason"),
+    [
+        ([tool_call("get_student_context", call_id="a"), tool_call("recent_questions", call_id="b"), tool_call("list_stage_materials", call_id="c"), tool_call("read_material", {"material_id": key("M-01")})], "max_steps"),
+        (["Here is my answer without JSON."], "invalid_final_output"),
+    ],
+)
+def test_loop_falls_back_to_a_single_call(ivy, alex, llm, loop_mode, script, reason):
+    adapter = llm(*script, explain_reply())
+    envelope = ask(ivy)
+    assert envelope["status"] == "completed"
+    assert envelope["result"]["interaction"]["source_refs"][0]["material_id"] == key("M-01")
+    fallback = next(s for s in trace_of(alex, envelope["id"]) if s.get("decision") == "fallback_to_single")
+    assert fallback["reason"] == reason
+    assert adapter.calls[-1]["json_schema"] is not None  # the fallback is the structured single call
+
+
+def test_loop_time_budget_falls_back(ivy, alex, llm, loop_mode, settings):
+    settings.TEACHING_SUPPORT_LOOP_BUDGET_SECONDS = 0  # budget used up before the first model call
+    adapter = llm(explain_reply())
+    envelope = ask(ivy)
+    assert envelope["status"] == "completed" and len(adapter.calls) == 1
+    assert next(s for s in trace_of(alex, envelope["id"]) if s.get("decision") == "fallback_to_single")["reason"] == "time_budget"
+
+
+def test_loop_tools_only_open_the_learners_own_materials():
+    from agents.teaching_support.tools import ExplainTools
+
+    sophia = ExplainTools(learning.student(key("student-sophia")))
+    assert "error" in sophia.read_material(key("M-01")) and sophia.read == {}
+    ivy = ExplainTools(learning.student(key("student-ivy")))
+    assert ivy.read_material(key("M-01"))["title"] == "Academic Argument Guide"
+    assert [m["id"] for m in ivy.list_stage_materials()["materials"]] == [key("M-01"), key("M-02")]
+    assert all(spec.read_only for spec in ivy.specs())
+
+
+def test_offline_loop_mode_still_cites(ivy, loop_mode):
+    interaction = ask(ivy)["result"]["interaction"]
+    assert {ref["material_id"] for ref in interaction["source_refs"]} == {key("M-01"), key("M-02")}
