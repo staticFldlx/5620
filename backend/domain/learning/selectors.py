@@ -141,3 +141,170 @@ def courses(*, skill: str | None = None, level: str | None = None) -> QuerySet[C
     if level:
         qs = qs.filter(level__iexact=level)
     return qs
+
+
+
+def student_record_integrity_snapshot(student_id: str) -> dict:
+    """Return minimal metadata for student record integrity checks."""
+
+    from domain.learning.models import (
+        LearningProfile,
+        AssessmentSession,
+        LearningPlan,
+        ProficiencyProfile,
+    )
+
+    profile_exists = LearningProfile.objects.filter(
+        student_id=student_id,
+    ).exists()
+
+    completed_assessments = AssessmentSession.objects.filter(
+        student_id=student_id,
+        status="completed",
+    )
+
+    assessment_exists = completed_assessments.exists()
+
+    proficiency_exists = ProficiencyProfile.objects.filter(
+        session__student_id=student_id,
+        session__status="completed",
+    ).exists()
+
+    active_plan = (
+        LearningPlan.objects
+        .filter(
+            student_id=student_id,
+            status="active",
+        )
+        .select_related("based_on", "based_on__session")
+        .order_by("-version")
+        .first()
+    )
+
+    plan_assessment_valid = True
+
+    if active_plan is not None:
+        profile = active_plan.based_on
+
+        plan_assessment_valid = (
+            profile is not None
+            and str(profile.session.student_id) == str(student_id)
+            and profile.session.status == "completed"
+        )
+
+    return {
+        "student_id": str(student_id),
+        "profile_exists": profile_exists,
+        "assessment_exists": assessment_exists,
+        "proficiency_exists": proficiency_exists,
+        "active_plan_id": (
+            str(active_plan.pk)
+            if active_plan is not None
+            else None
+        ),
+        "plan_assessment_valid": plan_assessment_valid,
+    }
+
+def student_learning_history_summary(
+    student_id: str,
+    limit: int = 20,
+) -> dict:
+    """Return minimal learning history metadata for maintenance."""
+
+    from domain.learning.models import LearningHistoryEntry
+
+    limit = max(1, min(limit, 100))
+
+    records = (
+        LearningHistoryEntry.objects
+        .filter(student_id=student_id)
+        .order_by("-created_at", "-pk")[:limit]
+    )
+
+    entries = [
+        {
+            "entry_id": str(entry.pk),
+            "source_agent": entry.source_agent,
+            "kind": entry.kind,
+            "confidence": entry.confidence,
+            "escalated": entry.escalated,
+            "created_at": entry.created_at.isoformat(),
+        }
+        for entry in records
+    ]
+
+    return {
+        "student_id": str(student_id),
+        "returned_count": len(entries),
+        "entries": entries,
+    }
+
+
+def student_plan_version_snapshot(student_id: str) -> list[dict]:
+    """Return plan version metadata without private plan content."""
+
+    from domain.learning.models import LearningPlan
+
+    plans = (
+        LearningPlan.objects
+        .filter(student_id=student_id)
+        .order_by("version", "created_at")
+    )
+
+    return [
+        {
+            "plan_id": str(plan.pk),
+            "version": plan.version,
+            "status": plan.status,
+            "previous_version_id": (
+                str(plan.previous_version_id)
+                if plan.previous_version_id
+                else None
+            ),
+        }
+        for plan in plans
+    ]
+
+
+def student_archive_snapshot(student_id: str) -> dict:
+    """Return operational blockers for student record archiving."""
+
+    from django.utils import timezone
+
+    from domain.learning.models import (
+        LearningPlan,
+        Lesson,
+        AssessmentSession,
+        ProficiencyProfile,
+    )
+
+    now = timezone.now()
+
+    has_active_plan = LearningPlan.objects.filter(
+        student_id=student_id,
+        status="active",
+    ).exists()
+
+    has_upcoming_lessons = Lesson.objects.filter(
+        student_id=student_id,
+        status__in=["confirmed", "proposed"],
+        starts_at__gt=now,
+    ).exists()
+
+    has_pending_assessments = AssessmentSession.objects.filter(
+        student_id=student_id,
+        status="awaiting_review",
+    ).exists()
+
+    has_unresolved_reviews = ProficiencyProfile.objects.filter(
+        session__student_id=student_id,
+        status="pending_review",
+    ).exists()
+
+    return {
+        "student_id": str(student_id),
+        "has_active_plan": has_active_plan,
+        "has_upcoming_lessons": has_upcoming_lessons,
+        "has_pending_assessments": has_pending_assessments,
+        "has_unresolved_reviews": has_unresolved_reviews,
+    }
