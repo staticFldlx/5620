@@ -99,7 +99,7 @@ def script(task: TaskInput) -> list:
             return []
         skills, _ = adaptive.plan_skills(learner["focus_skills"], str(payload.get("input", {}).get("focus", "")))
         level = learner["start_level"]
-        return [_item(adaptive.skill_for(skills, 1), level, 1)]
+        return [_item(adaptive.skill_for(skills, 1), level, 1, len(skills))]
 
     session_id = ((payload.get("previous") or {}).get("result") or {}).get("session_id")
     session = learning.assessment_session(session_id) if session_id else None
@@ -110,15 +110,18 @@ def script(task: TaskInput) -> list:
     if current is None:
         return []
     scored = score_reply(str(reply.get("answer", "")), current)
+    replies: list = [scored]
+    if not scored["off_task"] and adaptive.needs_second_opinion(scored["score"]):
+        replies.append(scored)  # the agent asks twice near a threshold; the fake scorer is deterministic
     current.update(answer=reply.get("answer"), score=scored["score"], estimate=adaptive.estimate(adaptive.level_index(current["level"]), scored["score"]))
     answered = [i for i in items if i.get("answer") is not None]
     estimates = [i["estimate"] for i in answered if i.get("estimate") is not None]
     if adaptive.stop_reason(estimates, len(answered), session.max_items):
-        return [scored, _report(answered, adaptive.final_level(estimates))]
+        return [*replies, _report(answered, adaptive.final_level(estimates))]
     next_level = adaptive.level_name(adaptive.next_index(adaptive.level_index(current["level"]), scored["score"]))
     planned = items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
     number = len(items) + 1
-    return [scored, _item(adaptive.skill_for(planned, number), next_level, number)]
+    return [*replies, _item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
 
 
 def score_reply(answer: str, item: dict) -> dict[str, Any]:
@@ -133,10 +136,10 @@ def score_reply(answer: str, item: dict) -> dict[str, Any]:
     return {"score": score, "met_points": met, "feedback": feedback, "off_task": False}
 
 
-def _item(skill: str, level: str, number: int) -> dict:
+def _item(skill: str, level: str, number: int, planned: int) -> dict:
     options = BANK[skill]
     band = min(adaptive.level_index(level) // 2, len(options) - 1)  # A -> 0, B -> 1, C -> 2
-    repeat = (number - 1) // len(adaptive.TEXT_SKILLS)  # a skill's second item uses the next prompt, not the same one
+    repeat = (number - 1) // planned  # a skill's second item uses the next prompt, not the same one
     prompt, points = options[(band + repeat) % len(options)]
     return {"prompt": f"[{level} {skill}] {prompt}", "expected_points": points}
 

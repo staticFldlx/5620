@@ -125,7 +125,8 @@ class AssessmentAgent(AIAgent):
         """UC02 steps 6-7 / UC05 step 5: level, confidence, report; publish or escalate (NFR-02)."""
         existing = getattr(session, "proficiency", None)
         if existing is not None:  # re-queued after the profile was written
-            return self._publish(session, existing, low=existing.status == "pending_review", reason="low_confidence")
+            reason = "low_confidence" if self.runtime.is_low_confidence(existing.confidence) else "insufficient_evidence"
+            return self._publish(session, existing, low=existing.status == "pending_review", reason=reason)
 
         answered = [i for i in session.items if i.get("answer") is not None]
         scored = [i for i in answered if i.get("score") is not None]
@@ -224,7 +225,9 @@ class AssessmentAgent(AIAgent):
         if decision.action == "confirm_result":
             if record.status != "confirmed":
                 corrected = (decision.corrected_level or "").strip()
-                level = (adaptive.parse_level(corrected, default=None) or corrected.upper()) if corrected else record.overall_level
+                level = adaptive.parse_level(corrected, default=None) or record.overall_level
+                if corrected and adaptive.parse_level(corrected, default=None) is None:
+                    self.runtime.note("corrected_level_ignored", value=corrected[:40])  # not a CEFR level; the note keeps it
                 fields: dict[str, Any] = {"status": "confirmed", "overall_level": level, "review_note": decision.note, **reviewer}
                 feedback = record.feedback.replace(PROVISIONAL_NOTE, "").strip()
                 if level != record.overall_level:
@@ -258,6 +261,11 @@ class AssessmentAgent(AIAgent):
         }
         context = {k: learner[k] for k in ("goal", "target_level", "kind", "stage_title")}
         item = self._ask(prompts.GENERATE_ITEM, GeneratedItem, learner=context, request=request)
+        if item is not None and _is_repeat(item.prompt, previous):
+            self.runtime.note("repeated_item_regenerated", item_number=number)
+            item = self._ask(prompts.GENERATE_ITEM, GeneratedItem, learner=context, request={**request, "note": "Your last item repeated an earlier one. Write a different item."})
+            if item is not None and _is_repeat(item.prompt, previous):
+                item = None
         if item is None:
             self.runtime.note("item_generation_failed", item_number=number, skill=skill, level=level)
             return None
@@ -274,13 +282,23 @@ class AssessmentAgent(AIAgent):
 
     def _score(self, item: dict, answer: str) -> dict:
         public = {k: item[k] for k in ("skill", "level", "prompt", "expected_points")}
-        scored = self._ask(prompts.SCORE_ANSWER, ScoredAnswer, item=public, answer=answer)
+        if len(answer) > prompts.MAX_ANSWER_CHARS:
+            self.runtime.note("answer_truncated", item_id=item["item_id"], chars=len(answer))
+        scored = self._ask(prompts.SCORE_ANSWER, ScoredAnswer, item=public, answer=prompts.as_data(answer))
         if scored is None:
             self.runtime.note("scoring_failed", item_id=item["item_id"])
             return {"score": None, "estimate": None, "agreement": None, "scoring_failed": True}
         met = [p for p in scored.met_points if p in item["expected_points"]]
         score = 0.0 if scored.off_task else round(scored.score, 3)
         agreement = adaptive.points_agreement(score, len(met), len(item["expected_points"]))
+        if not scored.off_task and adaptive.needs_second_opinion(score):
+            # the score decides the next level: a second independent scoring, averaged (consistency evidence too)
+            second = self._ask(prompts.SCORE_ANSWER, ScoredAnswer, item=public, answer=prompts.as_data(answer))
+            if second is not None:
+                second_score = 0.0 if second.off_task else round(second.score, 3)
+                self.runtime.note("second_opinion", item_id=item["item_id"], first=score, second=second_score)
+                agreement = round(min(agreement, 1.0 - abs(score - second_score)), 3)
+                score = round((score + second_score) / 2, 3)
         estimate = adaptive.estimate(adaptive.level_index(item["level"]), score)
         self.runtime.note("answer_scored", item_id=item["item_id"], score=score, met_points=len(met), agreement=agreement, off_task=scored.off_task)
         return {"score": score, "met_points": met, "feedback": scored.feedback.strip(), "off_task": scored.off_task, "agreement": agreement, "estimate": estimate}
@@ -327,6 +345,12 @@ def _template_report(level: str, answered: list[dict], learner: dict) -> Assessm
         gap_to_goal=f"Current level {level}; target {target}.",
         feedback=f"Your answers place you at {level}." + (f" Focus next on {', '.join(weaknesses)}." if weaknesses else ""),
     )
+
+
+def _is_repeat(prompt: str, previous: list[str]) -> bool:
+    """Same opening words as an earlier item (the model sometimes ignores previous_prompts)."""
+    head = " ".join(prompt.lower().split()[:12])
+    return any(head == " ".join(p.lower().split()[:12]) for p in previous)
 
 
 def _next_item(session: Any) -> AgentResult:

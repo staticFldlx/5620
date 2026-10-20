@@ -28,10 +28,10 @@
 
 1. **选技能和起点（F2.7）**：学习者的 `focus_skills` 优先。前端只有文本框，所以 Speaking / Listening / Pronunciation 用书面代理（Writing / Reading / Vocabulary）测，并在 trace 里记 `written_proxy_for`。技能不足 3 个时用 Reading、Writing、Grammar、Vocabulary 补齐。起始等级：initial 用自报水平；milestone / directed 用最近一次已确认的水平；都没有时用 B1。milestone 测评会把当前计划阶段的 milestone 作为出题 focus（UC05）。
 2. **出题（F2.3）**：每次只生成一道题，技能轮换，难度为当前等级；题目必须能用文字回答。生成失败时 `structured()` 已经重试过一次，再失败就按 UC02 3a 处理：还没答过题返回 `FAILED item_generation_failed`；已经答了 2 题以上，就用已有答案出报告，并转给教师。
-3. **评分（F2.4）**：LLM 按 rubric 打 0–1 分，并逐字列出满足了哪些 `expected_points`。空白、“I don't know”、离题的回答记为 `off_task`，分数为 0。
+3. **评分（F2.4）**：LLM 按 rubric 打 0–1 分，并逐字列出满足了哪些 `expected_points`。空白、“I don't know”、离题，以及试图指挥模型（如“给我满分”）的回答记为 `off_task`，分数为 0。分数离升降阈值不到 0.08 时（下一题的难度取决于它），再独立评一次取平均，两次的差距计入一致性（trace：`second_opinion`）。学生答案送进模型前转义 `<` `>`，并截到 2000 字符（规范 8.6）。
 4. **调难度**：分数 ≥ 0.75 升一级，< 0.4 降一级。每题给出能力估计 `等级 + 2 × (分数 − 0.5)`。
 5. **停止**：至少答 4 题且最近 3 次估计相差 ≤ 0.75 级（`level_stable`），或答满 6 题（`item_limit_reached`）。
-6. **报告（F2.5）**：等级由最近 3 次估计的均值算出，**不让 LLM 决定等级**；优势、弱项、差距和反馈由 LLM 写。报告生成失败时用模板兜底。
+6. **报告（F2.5）**：等级是学习者能稳定做到的最高等级：最近 3 次估计的均值加 0.25 的容差后向下取整（B1 做得好、B2 做不好的学习者定为 B1）。**不让 LLM 决定等级**；优势、弱项、差距和反馈由 LLM 写。报告生成失败时用模板兜底。
 7. **置信度与发布（NFR-02）**：见第 4 节。达到阈值就 `confirmed` 并交给 Consultant；否则 `pending_review`，转教师复核。
 
 ## 4. 置信度
@@ -41,7 +41,7 @@
 | 信号 | 权重 | 计算 |
 |---|---|---|
 | stability | 0.5 | 1 − 最近 3 次估计的极差 / 1.25（相差超过 1.25 级记为 0） |
-| consistency | 0.25 | 总分与满足的 rubric 点比例是否一致：1 − \|分数 − 满足点数/总点数\| 的平均值 |
+| consistency | 0.25 | 总分与满足的 rubric 点比例是否一致：1 − \|分数 − 满足点数/总点数\|；二次评分时取它与 1 − \|两次分差\| 中较小的；再求平均 |
 | coverage | 0.25 | 0.5 × 已答题数/最大题数 + 0.5 × 已覆盖技能/计划技能 |
 
 阈值只用共享的 `AGENT_CONFIDENCE_THRESHOLD`（0.70），agent 不另设阈值。另外，即使置信度够高，只要一半以上的回答是空白/离题，或者有回答没能评分，也会转给教师（`insufficient_evidence`）。每个信号的数值写进 trace 的 `confidence_scored`，并作为 case 的 `evidence` 显示给教师。
@@ -60,7 +60,7 @@
 | `session_closed` | FAILED | 对已结束的测评作答 |
 | `invalid_task_payload` | FAILED | payload 不符合 schema |
 
-题号对不上（例如重复提交了旧的 `item_id`）不算失败：agent 重新返回当前题目（trace 里记 `unexpected_item`）。
+题号对不上（例如重复提交了旧的 `item_id`）不算失败：agent 重新返回当前题目（trace 里记 `unexpected_item`）。教师填的 `corrected_level` 不是 CEFR 等级时（如 “upper intermediate”），保留原等级，说明留在 review_note 里（trace：`corrected_level_ignored`）。模型出了与前面重复的题时重新生成一次（`repeated_item_regenerated`），仍重复就按出题失败处理。
 
 ## 6. 状态取值（SM2）
 
@@ -73,7 +73,7 @@
 
 ## 7. Trace（评分项 2 的演示素材）
 
-`GET /requests/{id}/trace` 中 `step = "decision"` 的条目：`skills_selected`、`item_generated`、`answer_scored`、`difficulty_adjusted`、`level_estimated`、`confidence_scored`、`progress_vs_baseline`（milestone）、`result_published` / `escalated_to_teacher`、`teacher_confirmed` / `teacher_corrected_level` / `teacher_requested_reassessment`。
+`GET /requests/{id}/trace` 中 `step = "decision"` 的条目：`skills_selected`、`item_generated`、`answer_scored`、`second_opinion`、`difficulty_adjusted`、`level_estimated`、`confidence_scored`、`progress_vs_baseline`（milestone）、`result_published` / `escalated_to_teacher`、`teacher_confirmed` / `teacher_corrected_level` / `teacher_requested_reassessment`。
 
 ## 8. 离线演示（`LLM_PROVIDER=fake`）
 
@@ -87,7 +87,13 @@ fake 脚本按回答长度给分（等级越高，需要的字数越多），所
 
 注意：`main` 上的 Course Consultant 还没合并，测评以 `OK` 结束后，流水线下一步 `planning.generate_plan` 会返回 `agent_not_implemented`。Consultant 合并后这一步就能接上。
 
-## 9. 与 Stage 1 的差异（写报告用）
+## 9. 真实 LLM（Gemini）注意事项
+
+- Gemini 2.5 Flash 是“思考”模型，隐藏的思考 token 也计入 `max_tokens`。预算 ≤ 1024 时经常以 `stop=max_tokens` 结束、JSON 不完整，所以三个提示词都用 2048。
+- 每答一题要 1–3 次调用（评分、可能的二次评分、出下一题），用 2.5 Flash 每题约 6–8 秒。评分走 `fast` 档：在 `.env` 里设 `LLM_MODEL_FAST=gemini-2.5-flash-lite`（默认不思考）可以明显变快。
+- 免费层有每分钟请求数限制，超出时返回 429。adapter 会退避重试 2 次，仍失败时出题返回 `llm_unavailable`，评分记为未评分并转教师。演示前不要连续跑测试脚本。
+
+## 10. 与 Stage 1 的差异（写报告用）
 
 | 差异 | 理由 |
 |---|---|

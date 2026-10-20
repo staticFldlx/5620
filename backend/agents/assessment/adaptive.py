@@ -10,13 +10,15 @@ estimate is still moving gives low stability, so the result goes to a teacher.
 
 Confidence (NFR-02) is not the model's self-report. It combines three signals we can explain:
   stability    how close the last estimates are
-  consistency  agreement between the holistic score and the rubric points met for the same answer
+  consistency  agreement between the holistic score and the rubric points met for the same answer,
+               and between the two scores when a borderline answer is scored twice
   coverage     how many items and planned skills the evidence covers
 The threshold itself is the shared AGENT_CONFIDENCE_THRESHOLD; this module never defines one.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Sequence
 
@@ -35,6 +37,8 @@ STEP_UP = 0.75
 STEP_DOWN = 0.4
 STABLE_WINDOW = 3
 STABLE_SPREAD = 0.75  # ability-estimate spread (in CEFR steps) still counted as stable
+PLACEMENT_TOLERANCE = 0.25  # an estimate a quarter level below L still places at L
+SECOND_OPINION_BAND = 0.08  # scores within this distance of STEP_UP / STEP_DOWN are scored twice
 UNSTABLE_SPREAD = 1.25  # spread at which stability reaches 0: the learner cannot be placed within one level
 
 # Stability weighs most: it is the evidence that the level estimate has settled (UC02 step 5).
@@ -112,9 +116,15 @@ def stop_reason(estimates: Sequence[float], answered: int, max_items: int = MAX_
 
 
 def final_level(estimates: Sequence[float]) -> str:
-    """Mean of the last estimates (the staircase has moved towards the true level by then)."""
+    """The highest level the learner reliably shows: floor of the mean of the last estimates, with
+    PLACEMENT_TOLERANCE for scoring noise. Good at B1 but weak at B2 places at B1, not B2."""
     window = list(estimates)[-STABLE_WINDOW:] or [float(LEVELS.index(DEFAULT_LEVEL))]
-    return level_name(sum(window) / len(window))
+    return level_name(math.floor(sum(window) / len(window) + PLACEMENT_TOLERANCE))
+
+
+def needs_second_opinion(score: float) -> bool:
+    """A score this close to a staircase threshold decides the next level, so it is scored twice."""
+    return abs(score - STEP_UP) < SECOND_OPINION_BAND or abs(score - STEP_DOWN) < SECOND_OPINION_BAND
 
 
 def confidence_signals(estimates: Sequence[float], consistency: Sequence[float], *, answered: int, max_items: int, skills_covered: int, skills_planned: int) -> dict[str, float]:
