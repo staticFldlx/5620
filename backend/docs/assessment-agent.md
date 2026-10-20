@@ -12,6 +12,7 @@
 | `context.py` | agent 感知到的学习者信息（目标、基线水平、当前阶段）。不含姓名和邮箱（规范 8.6） |
 | `prompts.py` | 三个带版本号的提示词：`assessment.generate_item.v1`、`assessment.score_answer.v1`、`assessment.report.v1` |
 | `schemas.py` | LLM 输出 schema（扁平，无 `$defs`）和两个 task 的 payload schema |
+| `bank.py` | 内置题库（每个技能 A/B/C 三档各一题）：fake 脚本的题目，也是模型出题失败时的兜底 |
 | `fake.py` | `LLM_PROVIDER=fake` 时的离线脚本，按 agent 自己的规则重放，演示结果可复现 |
 | `tests/test_assessment.py` | 规则单测 + 经 API 的成功路径、升级路径、教师修正、教师要求重测、失败路径 |
 
@@ -27,7 +28,7 @@
 ## 3. 一次测评怎么走（感知 → 决策 → 行动）
 
 1. **选技能和起点（F2.7）**：学习者的 `focus_skills` 优先。前端只有文本框，所以 Speaking / Listening / Pronunciation 用书面代理（Writing / Reading / Vocabulary）测，并在 trace 里记 `written_proxy_for`。技能不足 3 个时用 Reading、Writing、Grammar、Vocabulary 补齐。起始等级：initial 用自报水平；milestone / directed 用最近一次已确认的水平；都没有时用 B1。milestone 测评会把当前计划阶段的 milestone 作为出题 focus（UC05）。
-2. **出题（F2.3）**：每次只生成一道题，技能轮换，难度为当前等级；题目必须能用文字回答。生成失败时 `structured()` 已经重试过一次，再失败就按 UC02 3a 处理：还没答过题返回 `FAILED item_generation_failed`；已经答了 2 题以上，就用已有答案出报告，并转给教师。
+2. **出题（F2.3）**：每次只生成一道题，技能轮换，难度为当前等级；题目必须能用文字回答。生成失败时 `structured()` 已经重试过一次（UC02 3a）；仍然失败（限流、服务不可用、输出无效）时改用内置题库里同技能同等级的题（trace：`item_bank_fallback`），测评不会中途卡住。
 3. **评分（F2.4）**：LLM 按 rubric 打 0–1 分，并逐字列出满足了哪些 `expected_points`。空白、“I don't know”、离题，以及试图指挥模型（如“给我满分”）的回答记为 `off_task`，分数为 0。分数离升降阈值不到 0.08 时（下一题的难度取决于它），再独立评一次取平均，两次的差距计入一致性（trace：`second_opinion`）。学生答案送进模型前转义 `<` `>`，并截到 2000 字符（规范 8.6）。
 4. **调难度**：分数 ≥ 0.75 升一级，< 0.4 降一级。每题给出能力估计 `等级 + 2 × (分数 − 0.5)`。
 5. **停止**：至少答 4 题且最近 3 次估计相差 ≤ 0.75 级（`level_stable`），或答满 6 题（`item_limit_reached`）。
@@ -52,8 +53,6 @@
 |---|---|---|
 | `low_confidence` | NEEDS_ESCALATION | 置信度低于阈值 |
 | `insufficient_evidence` | NEEDS_ESCALATION | 一半以上回答空白/离题，或有回答未能评分 |
-| `item_generation_failed` | FAILED | 第一题生成失败（UC02 3a） |
-| `llm_unavailable` | FAILED | LLM 服务不可用（取代 item_generation_failed） |
 | `assessment_changes_requested` | FAILED | 教师选择 `request_changes`：结果不进入计划（C1），学生需要重测 |
 | `invalid_review_action` | FAILED | 未知的复核动作 |
 | `proficiency_not_found` / `session_not_found` / `student_not_found` | FAILED | 记录不存在或不属于该学生 |
@@ -90,8 +89,8 @@ fake 脚本按回答长度给分（等级越高，需要的字数越多），所
 ## 9. 真实 LLM（Gemini）注意事项
 
 - Gemini 2.5 Flash 是“思考”模型，隐藏的思考 token 也计入 `max_tokens`。预算 ≤ 1024 时经常以 `stop=max_tokens` 结束、JSON 不完整，所以三个提示词都用 2048。
-- 每答一题要 1–3 次调用（评分、可能的二次评分、出下一题），用 2.5 Flash 每题约 6–8 秒。评分走 `fast` 档：在 `.env` 里设 `LLM_MODEL_FAST=gemini-2.5-flash-lite`（默认不思考）可以明显变快。
-- 免费层有每分钟请求数限制，超出时返回 429。adapter 会退避重试 2 次，仍失败时出题返回 `llm_unavailable`，评分记为未评分并转教师。演示前不要连续跑测试脚本。
+- 每答一题要 1–3 次调用（评分、可能的二次评分、出下一题），用 2.5 Flash 每题约 6–8 秒。评分走 `fast` 档：在 `.env` 里设 `LLM_MODEL_FAST=gemini-flash-lite-latest` 可以变快（`gemini-2.5-flash-lite` 已不对新用户开放，会返回 404）。
+- 免费层有每分钟请求数限制，超出时返回 429。adapter 会退避重试 2 次；仍失败时出题改用内置题库，评分记为未评分，最后转教师（`insufficient_evidence` 或 `low_confidence`）。演示前不要连续跑测试脚本。
 
 ## 10. 与 Stage 1 的差异（写报告用）
 
@@ -101,3 +100,4 @@ fake 脚本按回答长度给分（等级越高，需要的字数越多），所
 | 题数上限 6、至少 4 题 | 前端显示 “Question n of max_items”，需要一开始就固定上限 |
 | 等级由规则计算，LLM 只写叙述 | 避免 LLM 臆造等级；置信度可解释 |
 | `request_changes` 让请求以 FAILED 结束 | 流水线下一步是生成计划，只有失败才能阻止被驳回的结果进入计划（C1） |
+| UC02 3a 出题失败不结束用例，改用内置题库 | 免费层限流很常见；让学习者白答一半再失败，体验更差。题库题目在 trace 和 `prompt_id` 里可区分 |

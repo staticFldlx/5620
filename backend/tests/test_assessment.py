@@ -177,11 +177,18 @@ def test_directed_assessment_by_teacher_uses_the_focus(agent, emily):
 
 
 @pytestmark_db
-def test_item_generation_failure_fails_cleanly(agent, ivy, monkeypatch):
-    monkeypatch.setattr(fake, "script", lambda task: ["not json", "still not json"])  # structured() retries once (UC02 3a)
-    response = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"})
-    assert response.status_code == 422 and response.json()["error"]["code"] == "item_generation_failed"
-    assert not AssessmentSession.objects.filter(student_id=key("student-ivy"), type="initial", status="in_progress").exists()
+def test_llm_outage_falls_back_to_the_item_bank_and_the_teacher(agent, ivy, monkeypatch):
+    """UC02 3a: the model keeps failing, yet the learner can finish; unscored answers go to a teacher."""
+    monkeypatch.setattr(fake, "script", lambda task: ["not json"] * 12)
+    session = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"}).json()
+    assert session["status"] == "in_progress" and session["current_item"].startswith("[B2 Reading]")  # bank item
+    final = answer_all(ivy, session, [STEADY] * adaptive.MAX_ITEMS)
+    assert final["answered"] == adaptive.MAX_ITEMS and final["status"] == "awaiting_review"
+    assert final["result"]["status"] == "pending_review"
+    stored = AssessmentSession.objects.get(pk=final["id"])
+    assert {i["prompt_id"] for i in stored.items} == {"assessment.item_bank.v1"} and all(i["score"] is None for i in stored.items)
+    decisions = [step["decision"] for t in tasks_of(final["id"]) for step in t.trace if step.get("step") == "decision"]
+    assert {"item_bank_fallback", "scoring_failed", "report_template_fallback", "escalated_to_teacher"} <= set(decisions)
 
 
 @pytestmark_db

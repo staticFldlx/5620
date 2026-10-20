@@ -23,11 +23,10 @@ from domain.learning import selectors as learning
 from domain.learning import services as learning_services
 from domain.learning.views import proficiency_view
 
-from . import adaptive, context, fake, prompts
+from . import adaptive, bank, context, fake, prompts
 from .schemas import AnswerReply, ApplyReviewPayload, AssessmentReport, ConductPayload, GeneratedItem, ScoredAnswer
 
 AGENT_ID = "assessment"
-MIN_ITEMS_FOR_PARTIAL_RESULT = 2  # UC02 3a after some answers: report on what we have, the teacher reviews it
 PROVISIONAL_NOTE = "This result is provisional until your teacher reviews it."
 
 
@@ -76,8 +75,6 @@ class AssessmentAgent(AIAgent):
             focus=focus or learner["stage_milestone"] or "",
         )
         item = self._generate(learner, skills, number=1, level=level, focus=focus, previous=[])
-        if item is None:  # UC02 3a: structured() already retried once
-            return self._llm_failed("item_generation_failed", "The assessment could not be prepared. Please try again later.")
         item["planned_skills"] = skills
         fields: dict[str, Any] = {"focus": focus, "difficulty": level, "max_items": adaptive.MAX_ITEMS, "items": [item]}
         if task.ctx.actor_role == "teacher":
@@ -114,10 +111,6 @@ class AssessmentAgent(AIAgent):
         planned = items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
         learner = context.learner(student, payload.input.kind)
         item = self._generate(learner, planned, number=len(items) + 1, level=level, focus=session.focus, previous=[i["prompt"] for i in items])
-        if item is None:
-            if len(answered) >= MIN_ITEMS_FOR_PARTIAL_RESULT:
-                return self._finish(student, session, payload.input.kind, "item_generation_failed")
-            return self._llm_failed("item_generation_failed", "The next question could not be prepared. Please try again later.")
         session = learning_services.update_assessment_session(AGENT_ID, session, items=[*items, item], difficulty=level)
         return _next_item(session)
 
@@ -249,7 +242,8 @@ class AssessmentAgent(AIAgent):
         return _failed("invalid_review_action", f"Unknown review action: {decision.action}")
 
     # --- LLM steps --------------------------------------------------------------------------------
-    def _generate(self, learner: dict, skills: list[str], *, number: int, level: str, focus: str, previous: list[str]) -> dict | None:
+    def _generate(self, learner: dict, skills: list[str], *, number: int, level: str, focus: str, previous: list[str]) -> dict:
+        """F2.3. UC02 3a: structured() retries once; if the model still fails, a bank item keeps the assessment going."""
         skill = adaptive.skill_for(skills, number)
         request = {
             "skill": skill,
@@ -267,18 +261,13 @@ class AssessmentAgent(AIAgent):
             if item is not None and _is_repeat(item.prompt, previous):
                 item = None
         if item is None:
-            self.runtime.note("item_generation_failed", item_number=number, skill=skill, level=level)
-            return None
-        self.runtime.note("item_generated", item_id=f"item-{number}", skill=skill, level=level)
-        return {
-            "item_id": f"item-{number}",
-            "prompt": item.prompt.strip(),
-            "answer": None,
-            "skill": skill,
-            "level": level,
-            "expected_points": item.expected_points[:4],
-            "prompt_id": prompts.GENERATE_ITEM.id,
-        }
+            fallback = bank.item(skill, level, number, len(skills))
+            self.runtime.note("item_bank_fallback", item_id=f"item-{number}", skill=skill, level=level, llm=self._llm_failure_reason())
+            text, points, source = fallback["prompt"], fallback["expected_points"], bank.PROMPT_ID
+        else:
+            self.runtime.note("item_generated", item_id=f"item-{number}", skill=skill, level=level)
+            text, points, source = item.prompt.strip(), item.expected_points[:4], prompts.GENERATE_ITEM.id
+        return {"item_id": f"item-{number}", "prompt": text, "answer": None, "skill": skill, "level": level, "expected_points": points, "prompt_id": source}
 
     def _score(self, item: dict, answer: str) -> dict:
         public = {k: item[k] for k in ("skill", "level", "prompt", "expected_points")}
@@ -322,10 +311,9 @@ class AssessmentAgent(AIAgent):
         self.runtime.note("prompt", id=prompt.id)
         return self.runtime.structured(prompt.system, [prompts.user_message(**sections)], schema, tier=prompt.tier, max_tokens=prompt.max_tokens)
 
-    def _llm_failed(self, reason: str, message: str) -> AgentResult:
-        if any(step.get("step") == "llm" and step.get("stop") == "error" for step in self.runtime.trace):
-            reason, message = "llm_unavailable", "The AI service is not available right now. Please try again later."
-        return _failed(reason, message)
+    def _llm_failure_reason(self) -> str:
+        unavailable = any(step.get("step") == "llm" and step.get("stop") == "error" for step in self.runtime.trace)
+        return "llm_unavailable" if unavailable else "invalid_llm_output"
 
 
 # --- helpers ----------------------------------------------------------------------------------------

@@ -18,75 +18,10 @@ from typing import Any
 from agents.runtime import TaskInput
 from domain.learning import selectors as learning
 
-from . import adaptive, context
+from . import adaptive, bank, context
 
 WORD = re.compile(r"[A-Za-z']+")
 NO_ANSWER = re.compile(r"\b(i\s*don'?t\s*know|no\s*idea|idk|not\s*sure)\b", re.I)
-
-BANK: dict[str, list[tuple[str, list[str]]]] = {
-    "Reading": [
-        (
-            "Read: \"Many cities now close their centres to cars on Sundays. Shops first worried about losing customers, "
-            "but most report more visitors on foot.\" What was the shops' first concern, and what actually happened?",
-            ["Names the concern about losing customers", "States that visitors on foot increased", "Uses own words"],
-        ),
-        (
-            "Read: \"Remote work saves commuting time, yet some employees say they feel less connected to their team.\" "
-            "Explain the trade-off the writer describes and give one example of your own.",
-            ["Identifies the trade-off", "Mentions feeling less connected", "Gives a relevant own example"],
-        ),
-        (
-            "Read: \"Although the study was small, its findings challenge the assumption that bilingual children learn to read later.\" "
-            "What assumption is challenged, and why should the reader be careful with the result?",
-            ["States the assumption about bilingual children", "Notes the small study size", "Explains the need for caution"],
-        ),
-    ],
-    "Writing": [
-        (
-            "Write 3-4 sentences to a colleague asking to move tomorrow's meeting to Friday. Give a reason and suggest a time.",
-            ["Clear request to move the meeting", "Gives a reason", "Suggests a time", "Polite tone"],
-        ),
-        (
-            "Write a short paragraph (4-5 sentences) arguing whether students should learn a second language at school. "
-            "State your claim and support it with one piece of evidence.",
-            ["States a clear claim", "Supports it with evidence", "Explains how the evidence supports the claim"],
-        ),
-        (
-            "Write a short paragraph that presents one counter-argument to your own view on online exams and then responds to it.",
-            ["Presents a counter-argument fairly", "Responds to it", "Uses linking words"],
-        ),
-    ],
-    "Grammar": [
-        (
-            "Correct the mistakes and rewrite the sentences: \"Yesterday I go to the market and buyed some apple. It were very cheap.\"",
-            ["Uses past tense went/bought", "Plural apples", "Was instead of were"],
-        ),
-        (
-            "Combine into one sentence using a relative clause: \"The report was late. My manager wrote the report.\" "
-            "Then write one sentence of your own with 'which'.",
-            ["Correct relative clause", "Own sentence uses which correctly"],
-        ),
-        (
-            "Rewrite in the passive and explain when the passive is a better choice: \"The committee will announce the results next week.\"",
-            ["Correct future passive", "Explains focus on the action or result"],
-        ),
-    ],
-    "Vocabulary": [
-        (
-            "Use each of these words in a sentence about your daily life: 'schedule', 'deadline', 'improve'.",
-            ["Uses schedule correctly", "Uses deadline correctly", "Uses improve correctly"],
-        ),
-        (
-            "Explain the difference between 'affect' and 'effect' and write one example sentence for each.",
-            ["Explains affect as a verb", "Explains effect as a noun", "Two correct example sentences"],
-        ),
-        (
-            "Replace the informal words in this sentence with academic ones and explain your choices: \"Lots of people think this idea is really bad.\"",
-            ["Uses many or numerous", "Uses argue or consider", "Uses a precise evaluative word"],
-        ),
-    ],
-}
-
 
 def script(task: TaskInput) -> list:
     if task.task_type != "assessment.conduct_assessment":
@@ -99,7 +34,7 @@ def script(task: TaskInput) -> list:
             return []
         skills, _ = adaptive.plan_skills(learner["focus_skills"], str(payload.get("input", {}).get("focus", "")))
         level = learner["start_level"]
-        return [_item(adaptive.skill_for(skills, 1), level, 1, len(skills))]
+        return [bank.item(adaptive.skill_for(skills, 1), level, 1, len(skills))]
 
     session_id = ((payload.get("previous") or {}).get("result") or {}).get("session_id")
     session = learning.assessment_session(session_id) if session_id else None
@@ -121,7 +56,7 @@ def script(task: TaskInput) -> list:
     next_level = adaptive.level_name(adaptive.next_index(adaptive.level_index(current["level"]), scored["score"]))
     planned = items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
     number = len(items) + 1
-    return [*replies, _item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
+    return [*replies, bank.item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
 
 
 def score_reply(answer: str, item: dict) -> dict[str, Any]:
@@ -134,14 +69,6 @@ def score_reply(answer: str, item: dict) -> dict[str, Any]:
     met = points[: round(score * len(points))]
     feedback = "Clear and complete answer." if score >= 0.75 else "Good start; add more detail and explain your reasoning."
     return {"score": score, "met_points": met, "feedback": feedback, "off_task": False}
-
-
-def _item(skill: str, level: str, number: int, planned: int) -> dict:
-    options = BANK[skill]
-    band = min(adaptive.level_index(level) // 2, len(options) - 1)  # A -> 0, B -> 1, C -> 2
-    repeat = (number - 1) // planned  # a skill's second item uses the next prompt, not the same one
-    prompt, points = options[(band + repeat) % len(options)]
-    return {"prompt": f"[{level} {skill}] {prompt}", "expected_points": points}
 
 
 def _report(answered: list[dict], level: str) -> dict:
