@@ -179,7 +179,7 @@ def test_assessment_permissions(ivy, emily):
     assert emily.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"}).status_code == 403
     assert ivy.post("/assessments", {"student_id": key("student-sophia"), "kind": "initial"}).status_code == 403
     response = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"})
-    assert response.status_code == 422 and error_code(response) == "agent_not_implemented"
+    assert response.status_code == 200 and response.json()["status"] == "in_progress"  # the real agent, offline script
     old = ivy.get(f"/assessments/{key('A-104')}").json()  # a ProficiencyRecord id resolves to its session
     assert old["result"]["status"] == "pending_review"
     assert error_code(ivy.post(f"/assessments/{key('A-104')}/answers", {"item_id": "item-9", "answer": "x"})) == "assessment_not_awaiting_answer"
