@@ -34,7 +34,7 @@ def script(task: TaskInput) -> list:
             return []
         skills, _ = adaptive.plan_skills(learner["focus_skills"], str(payload.get("input", {}).get("focus", "")))
         level = learner["start_level"]
-        return [bank.item(adaptive.skill_for(skills, 1), level, 1, len(skills))]
+        return [_item(adaptive.skill_for(skills, 1), level, 1, len(skills))]
 
     session_id = ((payload.get("previous") or {}).get("result") or {}).get("session_id")
     session = learning.assessment_session(session_id) if session_id else None
@@ -45,30 +45,41 @@ def script(task: TaskInput) -> list:
     if current is None:
         return []
     scored = score_reply(str(reply.get("answer", "")), current)
+    score, _ = adaptive.combine(current["level"], scored["score"], scored["demonstrated_level"], len(scored["met_points"]), len(current.get("expected_points") or []), scored["off_task"])
     replies: list = [scored]
-    if not scored["off_task"] and adaptive.needs_second_opinion(scored["score"]):
+    if not scored["off_task"] and adaptive.needs_second_opinion(score):
         replies.append(scored)  # the agent asks twice near a threshold; the fake scorer is deterministic
-    current.update(answer=reply.get("answer"), score=scored["score"], estimate=adaptive.estimate(adaptive.level_index(current["level"]), scored["score"]))
+    current.update(answer=reply.get("answer"), score=score, estimate=adaptive.estimate(adaptive.level_index(current["level"]), score))
     answered = [i for i in items if i.get("answer") is not None]
     estimates = [i["estimate"] for i in answered if i.get("estimate") is not None]
     if adaptive.stop_reason(estimates, len(answered), session.max_items):
         return [*replies, _report(answered, adaptive.final_level(estimates))]
-    next_level = adaptive.level_name(adaptive.next_index(adaptive.level_index(current["level"]), scored["score"]))
+    next_level = adaptive.level_name(adaptive.next_index(adaptive.level_index(current["level"]), score))
     planned = items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
     number = len(items) + 1
-    return [*replies, bank.item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
+    return [*replies, _item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
 
 
 def score_reply(answer: str, item: dict) -> dict[str, Any]:
     words = len(WORD.findall(answer))
     points = list(item.get("expected_points") or [])
+    level = item.get("level")
     if words < 3 or NO_ANSWER.search(answer):
-        return {"score": 0.05, "met_points": [], "feedback": "Try to answer every part of the question in full sentences.", "off_task": True}
-    needed = 10 + 4 * adaptive.level_index(item.get("level"))  # A1: 10 words ... C2: 30 words
+        return {"demonstrated_level": "A1", "score": 0.05, "met_points": [], "feedback": "Try to answer every part of the question in full sentences.", "off_task": True}
+    needed = 10 + 4 * adaptive.level_index(level)  # A1: 10 words ... C2: 30 words
     score = round(min(words / needed, 1.0) * 0.95, 2)
     met = points[: round(score * len(points))]
+    # the level the fake "sees": one up for a clearly strong answer, one down for a weak one
+    shift = 1 if score >= 0.8 else -1 if score < 0.2 else 0
+    shown = adaptive.level_name(adaptive.level_index(level) + shift)
     feedback = "Clear and complete answer." if score >= 0.75 else "Good start; add more detail and explain your reasoning."
-    return {"score": score, "met_points": met, "feedback": feedback, "off_task": False}
+    return {"demonstrated_level": shown, "score": score, "met_points": met, "feedback": feedback, "off_task": False}
+
+
+def _item(skill: str, level: str, number: int, planned: int) -> dict:
+    """Bank item with a visible [level skill] tag, so the offline demo shows the difficulty moving."""
+    picked = bank.item(skill, level, number, planned)
+    return {**picked, "prompt": f"[{level} {skill}] {picked['prompt']}"}
 
 
 def _report(answered: list[dict], level: str) -> dict:

@@ -118,7 +118,7 @@ def test_steady_answers_publish_a_confirmed_result_and_feed_planning(agent, ivy)
     request = tasks_of(final["id"]).last().request
     assert request.status == "completed" and request.result["plan_from"] == final["id"]  # C1: planning got the session
     decisions = [step["decision"] for t in tasks_of(final["id"]) for step in t.trace if step.get("step") == "decision"]
-    assert {"skills_selected", "answer_scored", "second_opinion", "difficulty_adjusted", "confidence_scored", "result_published"} <= set(decisions)
+    assert {"skills_selected", "answer_scored", "difficulty_adjusted", "confidence_scored", "result_published"} <= set(decisions)
     assert LearningHistoryEntry.objects.filter(source_agent="assessment", kind="assessment", escalated=False).exists()
 
 
@@ -181,7 +181,8 @@ def test_llm_outage_falls_back_to_the_item_bank_and_the_teacher(agent, ivy, monk
     """UC02 3a: the model keeps failing, yet the learner can finish; unscored answers go to a teacher."""
     monkeypatch.setattr(fake, "script", lambda task: ["not json"] * 12)
     session = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"}).json()
-    assert session["status"] == "in_progress" and session["current_item"].startswith("[B2 Reading]")  # bank item
+    assert session["status"] == "in_progress"
+    assert AssessmentSession.objects.get(pk=session["id"]).items[0]["prompt_id"] == "assessment.item_bank.v1"
     final = answer_all(ivy, session, [STEADY] * adaptive.MAX_ITEMS)
     assert final["answered"] == adaptive.MAX_ITEMS and final["status"] == "awaiting_review"
     assert final["result"]["status"] == "pending_review"
@@ -189,6 +190,24 @@ def test_llm_outage_falls_back_to_the_item_bank_and_the_teacher(agent, ivy, monk
     assert {i["prompt_id"] for i in stored.items} == {"assessment.item_bank.v1"} and all(i["score"] is None for i in stored.items)
     decisions = [step["decision"] for t in tasks_of(final["id"]) for step in t.trace if step.get("step") == "decision"]
     assert {"item_bank_fallback", "scoring_failed", "report_template_fallback", "escalated_to_teacher"} <= set(decisions)
+
+
+@pytestmark_db
+def test_borderline_answer_is_scored_twice(agent, ivy):
+    session = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "milestone"}).json()
+    ivy.post(f"/assessments/{session['id']}/answers", {"item_id": "item-1", "answer": WORDS(8)})  # combined score near STEP_DOWN
+    decisions = [step for t in tasks_of(session["id"]) for step in t.trace if step.get("step") == "decision"]
+    second = next(d for d in decisions if d["decision"] == "second_opinion")
+    assert second["first"] == second["second"]  # the fake scorer is deterministic
+    scored = next(d for d in decisions if d["decision"] == "answer_scored")
+    assert scored["demonstrated_level"] == "B2" and adaptive.needs_second_opinion(scored["score"])
+
+
+def test_two_scoring_views_are_combined():
+    assert adaptive.level_score("B1", "B2") == 0.85 and adaptive.level_score("B1", "A2") == 0.15 and adaptive.level_score("B1", "?") is None
+    score, agreement = adaptive.combine("C1", 0.6, "B1", 2, 3, False)  # task done, but B1 language on a C1 item
+    assert score < adaptive.STEP_DOWN and agreement < 0.5
+    assert adaptive.combine("B1", 0.9, "x", 3, 3, True) == (0.0, 1.0)
 
 
 @pytestmark_db

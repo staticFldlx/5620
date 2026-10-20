@@ -278,19 +278,39 @@ class AssessmentAgent(AIAgent):
             self.runtime.note("scoring_failed", item_id=item["item_id"])
             return {"score": None, "estimate": None, "agreement": None, "scoring_failed": True}
         met = [p for p in scored.met_points if p in item["expected_points"]]
-        score = 0.0 if scored.off_task else round(scored.score, 3)
-        agreement = adaptive.points_agreement(score, len(met), len(item["expected_points"]))
+        score, agreement = self._combine(item, scored, met)
         if not scored.off_task and adaptive.needs_second_opinion(score):
             # the score decides the next level: a second independent scoring, averaged (consistency evidence too)
             second = self._ask(prompts.SCORE_ANSWER, ScoredAnswer, item=public, answer=prompts.as_data(answer))
             if second is not None:
-                second_score = 0.0 if second.off_task else round(second.score, 3)
+                second_score, _ = self._combine(item, second, [p for p in second.met_points if p in item["expected_points"]])
                 self.runtime.note("second_opinion", item_id=item["item_id"], first=score, second=second_score)
                 agreement = round(min(agreement, 1.0 - abs(score - second_score)), 3)
                 score = round((score + second_score) / 2, 3)
         estimate = adaptive.estimate(adaptive.level_index(item["level"]), score)
-        self.runtime.note("answer_scored", item_id=item["item_id"], score=score, met_points=len(met), agreement=agreement, off_task=scored.off_task)
-        return {"score": score, "met_points": met, "feedback": scored.feedback.strip(), "off_task": scored.off_task, "agreement": agreement, "estimate": estimate}
+        self.runtime.note(
+            "answer_scored",
+            item_id=item["item_id"],
+            score=score,
+            rubric_score=scored.score,
+            demonstrated_level=scored.demonstrated_level,
+            met_points=len(met),
+            agreement=agreement,
+            off_task=scored.off_task,
+        )
+        return {
+            "score": score,
+            "demonstrated_level": adaptive.parse_level(scored.demonstrated_level, default=None),
+            "met_points": met,
+            "feedback": scored.feedback.strip(),
+            "off_task": scored.off_task,
+            "agreement": agreement,
+            "estimate": estimate,
+        }
+
+    @staticmethod
+    def _combine(item: dict, scored: ScoredAnswer, met: list[str]) -> tuple[float, float]:
+        return adaptive.combine(item["level"], scored.score, scored.demonstrated_level, len(met), len(item["expected_points"]), scored.off_task)
 
     def _report(self, learner: dict, level: str, answered: list[dict], kind: str) -> AssessmentReport:
         items = [{k: i.get(k) for k in ("skill", "level", "score", "feedback", "off_task")} for i in answered]

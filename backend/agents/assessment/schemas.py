@@ -23,6 +23,7 @@ class GeneratedItem(BaseModel):
 class ScoredAnswer(BaseModel):
     """Evaluation of one answer against the item's rubric (F2.4)."""
 
+    demonstrated_level: str  # CEFR level the language of the answer shows (A1..C2)
     score: float = Field(ge=0.0, le=1.0)  # holistic: how well the answer shows the item's level
     met_points: list[str] = []  # copied from expected_points
     feedback: str  # one or two sentences for the learner

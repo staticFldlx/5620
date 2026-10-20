@@ -39,6 +39,7 @@ STABLE_WINDOW = 3
 STABLE_SPREAD = 0.75  # ability-estimate spread (in CEFR steps) still counted as stable
 PLACEMENT_TOLERANCE = 0.25  # an estimate a quarter level below L still places at L
 SECOND_OPINION_BAND = 0.08  # scores within this distance of STEP_UP / STEP_DOWN are scored twice
+LEVEL_SCORE_STEP = 0.35  # score change per CEFR level between the answer's level and the item's level
 UNSTABLE_SPREAD = 1.25  # spread at which stability reaches 0: the learner cannot be placed within one level
 
 # Stability weighs most: it is the evidence that the level estimate has settled (UC02 step 5).
@@ -136,6 +137,27 @@ def confidence_signals(estimates: Sequence[float], consistency: Sequence[float],
     agreement = sum(consistency) / len(consistency) if consistency else 0.0
     coverage = 0.5 * min(answered / max_items, 1.0) + 0.5 * min(skills_covered / max(skills_planned, 1), 1.0)
     return {"stability": round(stability, 3), "consistency": round(agreement, 3), "coverage": round(coverage, 3)}
+
+
+def level_score(item_level: str, demonstrated_level: str | None) -> float | None:
+    """The scorer's CEFR judgement as a score on the same scale: same level 0.5, one level above 0.85, one below 0.15."""
+    shown = parse_level(demonstrated_level, default=None)
+    if shown is None:
+        return None
+    return round(min(max(0.5 + LEVEL_SCORE_STEP * (LEVELS.index(shown) - level_index(item_level)), 0.0), 1.0), 3)
+
+
+def combine(item_level: str, rubric: float, demonstrated_level: str | None, met: int, expected: int, off_task: bool) -> tuple[float, float]:
+    """Two views of one answer: the rubric score and the CEFR level the language shows. Their mean is the score;
+    disagreement between them, or with the rubric points met, lowers the consistency (agreement) value."""
+    if off_task:
+        return 0.0, 1.0
+    rubric = round(rubric, 3)
+    agreement = points_agreement(rubric, met, expected)
+    by_level = level_score(item_level, demonstrated_level)
+    if by_level is None:
+        return rubric, agreement
+    return round((rubric + by_level) / 2, 3), round(min(agreement, 1.0 - abs(rubric - by_level)), 3)
 
 
 def points_agreement(score: float, met: int, expected: int) -> float:
