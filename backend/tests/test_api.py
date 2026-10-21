@@ -1,7 +1,10 @@
 """HTTP contract tests for the 20 operations in frontend/src/api/client.ts, plus permission paths."""
 
+from datetime import UTC, datetime
+
 import pytest
 from django.test import Client
+from django.utils import timezone
 
 from access_control.identity import services as identity
 from agents.runtime import AgentResult, AgentStatus
@@ -199,7 +202,9 @@ def test_review_detail_and_question_answer(emily, ivy):
 
 
 # --- teaching records ---------------------------------------------------------------------------------
-def test_observation_availability_and_lesson_records(emily, ivy):
+def test_observation_availability_and_lesson_records(emily, ivy, monkeypatch):
+    # Fixture lessons have fixed dates; freeze the clock before L-021 (2026-10-15) so it is still upcoming.
+    monkeypatch.setattr(timezone, "now", lambda: datetime(2026, 10, 14, tzinfo=UTC))
     saved = emily.patch(f"/students/{key('student-ivy')}/observation", {"note": "Clearer claims now."}).json()
     assert saved["note"] == "Clearer claims now." and saved["teacher_id"] == key("teacher-emily")
     assert ivy.get("/workspace").json()["students"][key("student-ivy")]["observation"] == "Clearer claims now."
