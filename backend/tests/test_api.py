@@ -1,7 +1,10 @@
 """HTTP contract tests for the 20 operations in frontend/src/api/client.ts, plus permission paths."""
 
+from datetime import UTC, datetime
+
 import pytest
 from django.test import Client
+from django.utils import timezone
 
 from access_control.identity import services as identity
 from agents.runtime import AgentResult, AgentStatus
@@ -180,7 +183,7 @@ def test_assessment_permissions(ivy, emily):
     assert emily.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"}).status_code == 403
     assert ivy.post("/assessments", {"student_id": key("student-sophia"), "kind": "initial"}).status_code == 403
     response = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "initial"})
-    assert response.status_code == 422 and error_code(response) == "agent_not_implemented"
+    assert response.status_code == 200 and response.json()["status"] == "in_progress"  # the real agent, offline script
     old = ivy.get(f"/assessments/{key('A-104')}").json()  # a ProficiencyRecord id resolves to its session
     assert old["result"]["status"] == "pending_review"
     assert error_code(ivy.post(f"/assessments/{key('A-104')}/answers", {"item_id": "item-9", "answer": "x"})) == "assessment_not_awaiting_answer"
@@ -200,7 +203,9 @@ def test_review_detail_and_question_answer(emily, ivy):
 
 
 # --- teaching records ---------------------------------------------------------------------------------
-def test_observation_availability_and_lesson_records(emily, ivy):
+def test_observation_availability_and_lesson_records(emily, ivy, monkeypatch):
+    # Fixture lessons have fixed dates; freeze the clock before L-021 (2026-10-15) so it is still upcoming.
+    monkeypatch.setattr(timezone, "now", lambda: datetime(2026, 10, 14, tzinfo=UTC))
     saved = emily.patch(f"/students/{key('student-ivy')}/observation", {"note": "Clearer claims now."}).json()
     assert saved["note"] == "Clearer claims now." and saved["teacher_id"] == key("teacher-emily")
     assert ivy.get("/workspace").json()["students"][key("student-ivy")]["observation"] == "Clearer claims now."

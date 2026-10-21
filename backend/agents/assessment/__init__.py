@@ -1,5 +1,6 @@
-"""Assessment agent (IAssessment) - owned by the assessment owner.
+"""AI Assessment Agent (IAssessment) - agents.assessment.agent.AssessmentAgent.
 
-Expected entry point: agents.assessment.agent.AssessmentAgent (see AGENT_REGISTRY).
-Until it exists, its tasks fail with reason agent_not_implemented. See docs/shared-conventions.md.
+Handles assessment.conduct_assessment (adaptive initial / milestone / directed assessment, one
+task per item) and assessment.apply_review (teacher decision on a low-confidence result).
+See docs/assessment-agent.md for task types, reason codes and status values.
 """
