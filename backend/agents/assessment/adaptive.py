@@ -70,7 +70,8 @@ def plan_skills(focus_skills: Sequence[str], focus_text: str = "") -> tuple[list
     skills: list[str] = []
     proxied: list[str] = []
     wanted = [s.strip().title() for s in focus_skills if s and s.strip()]
-    wanted += [s for s in TEXT_SKILLS if s.lower() in (focus_text or "").lower()]
+    words = set(re.findall(r"[a-z]+", (focus_text or "").lower()))
+    wanted += [s for s in (*TEXT_SKILLS, *WRITTEN_PROXY) if s.lower() in words]
     for skill in wanted:
         if skill in WRITTEN_PROXY:
             proxied.append(skill)
@@ -104,7 +105,8 @@ def estimate(index: int, score: float) -> float:
 
 def is_stable(estimates: Sequence[float]) -> bool:
     window = list(estimates)[-STABLE_WINDOW:]
-    return len(window) == STABLE_WINDOW and max(window) - min(window) <= STABLE_SPREAD
+    # rounded: estimates have 3 decimals, and 1.1 - 0.35 is 0.7500000000000001 in floating point
+    return len(window) == STABLE_WINDOW and round(max(window) - min(window), 3) <= STABLE_SPREAD
 
 
 def stop_reason(estimates: Sequence[float], answered: int, max_items: int = MAX_ITEMS) -> str | None:
@@ -116,10 +118,11 @@ def stop_reason(estimates: Sequence[float], answered: int, max_items: int = MAX_
     return None
 
 
-def final_level(estimates: Sequence[float]) -> str:
+def final_level(estimates: Sequence[float], default: str = DEFAULT_LEVEL) -> str:
     """The highest level the learner reliably shows: floor of the mean of the last estimates, with
-    PLACEMENT_TOLERANCE for scoring noise. Good at B1 but weak at B2 places at B1, not B2."""
-    window = list(estimates)[-STABLE_WINDOW:] or [float(LEVELS.index(DEFAULT_LEVEL))]
+    PLACEMENT_TOLERANCE for scoring noise. Good at B1 but weak at B2 places at B1, not B2.
+    With no scored answer at all, the start level is kept (the result then goes to a teacher)."""
+    window = list(estimates)[-STABLE_WINDOW:] or [float(level_index(default))]
     return level_name(math.floor(sum(window) / len(window) + PLACEMENT_TOLERANCE))
 
 

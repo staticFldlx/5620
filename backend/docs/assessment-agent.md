@@ -45,19 +45,23 @@
 | consistency | 0.25 | 每题取三者中最小的：1 − \|rubric 分 − 满足点数比例\|、1 − \|rubric 分 − 等级换算分\|、（二次评分时）1 − \|两次分差\|；再对各题求平均 |
 | coverage | 0.25 | 0.5 × 已答题数/最大题数 + 0.5 × 已覆盖技能/计划技能 |
 
-阈值只用共享的 `AGENT_CONFIDENCE_THRESHOLD`（0.70），agent 不另设阈值。另外，即使置信度够高，只要一半以上的回答是空白/离题，或者有回答没能评分，也会转给教师（`insufficient_evidence`）。每个信号的数值写进 trace 的 `confidence_scored`，并作为 case 的 `evidence` 显示给教师。
+阈值只用共享的 `AGENT_CONFIDENCE_THRESHOLD`（0.70），agent 不另设阈值。另外，即使置信度够高，只要至少一半的回答是空白/离题，或者有回答没能评分，也会转给教师（`insufficient_evidence`）。每个信号的数值写进 trace 的 `confidence_scored`，并作为 case 的 `evidence` 显示给教师。
 
 ## 5. 原因码
 
 | 原因码 | status | 含义 |
 |---|---|---|
 | `low_confidence` | NEEDS_ESCALATION | 置信度低于阈值 |
-| `insufficient_evidence` | NEEDS_ESCALATION | 一半以上回答空白/离题，或有回答未能评分 |
+| `insufficient_evidence` | NEEDS_ESCALATION | 至少一半回答空白/离题，或有回答未能评分 |
 | `assessment_changes_requested` | FAILED | 教师选择 `request_changes`：结果不进入计划（C1），学生需要重测 |
 | `invalid_review_action` | FAILED | 未知的复核动作 |
 | `proficiency_not_found` / `session_not_found` / `student_not_found` | FAILED | 记录不存在或不属于该学生 |
 | `session_closed` | FAILED | 对已结束的测评作答 |
 | `invalid_task_payload` | FAILED | payload 不符合 schema |
+| `assessment_in_progress` | FAILED | 已有一个仍在等待作答的测评，不能再开一个（没有请求在等的旧测评不挡新测评） |
+| `no_active_plan` | FAILED | 里程碑测评需要有效的学习计划（UC05 前置条件） |
+
+`focus` 超过 200 字符时截断（trace：`focus_truncated`）；`focus`、学习目标等档案文字送进模型前同样转义 `<` `>`。重试的作答任务（第一次已保存答案、还没出下一题就中断）会从已保存的答案继续，不会提前结束（trace：`resumed_after_retry`）。
 
 题号对不上（例如重复提交了旧的 `item_id`）不算失败：agent 重新返回当前题目（trace 里记 `unexpected_item`）。教师填的 `corrected_level` 不是 CEFR 等级时（如 “upper intermediate”），保留原等级，说明留在 review_note 里（trace：`corrected_level_ignored`）。模型出了与前面重复的题时重新生成一次（`repeated_item_regenerated`），仍重复就按出题失败处理。
 
