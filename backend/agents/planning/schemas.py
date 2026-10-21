@@ -1,3 +1,31 @@
+"""Planning-owned validation; no imports from frontend/orchestration contracts."""
+from __future__ import annotations
+
+from typing import Annotated, Any, Literal
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+
+NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class PlanningSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class PlanningDecision(PlanningSchema):
+    action: NonBlank
+    note: NonBlank
+    decided_by: NonBlank
+    requested_action: str | None = None
+
+
+class PlanningTask(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    input: dict[str, Any] = Field(default_factory=dict)
+    decision: PlanningDecision | None = None
+    case_id: str | None = None
+    subject_id: str | None = None
+    reply: dict[str, Any] | None = None
+    previous: dict[str, Any] | None = None
 
 
 class PlanRevisionRequest(PlanningSchema):
@@ -40,7 +68,7 @@ class PlanStageDraft(PlanningSchema):
     topics: list[NonBlank] = Field(min_length=1)
     milestone: NonBlank
     start_week: int = Field(ge=1)
-    end_week: int = Field(ge=1)
+    end_week: int = Field(ge=1, le=104)
     course_codes: list[str] = Field(default_factory=list)
 
     @field_validator("course_codes", mode="before")
@@ -91,7 +119,7 @@ class PlanResult(PlanningSchema):
     subject_type: Literal["plan"] = "plan"
     subject_id: NonBlank
     trigger: NonBlank = "A teacher must review this learning plan."
-    resume: Literal["planning.generate_plan", "planning.revise_plan"]
+    resume: Literal["planning.activate_plan"] = "planning.activate_plan"
     summary: str = ""
     evidence: list[dict[str, Any]] = Field(default_factory=list)
     route_to: Literal["founder"] | None = None
