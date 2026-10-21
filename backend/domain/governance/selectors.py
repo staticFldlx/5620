@@ -188,3 +188,15 @@ def recent_audit(limit: int = 50, *, include_task_events: bool = False) -> Query
     if not include_task_events:
         qs = qs.exclude(action__startswith="task.").exclude(action__startswith="request.").exclude(action__startswith="notification.")
     return qs.order_by("-created_at")[:limit]
+
+def agent_timeout_override(agent_id: str) -> int | None:
+    """Read an agent-specific timeout override."""
+
+    from .models import AgentRuntimeOverride
+
+    return (
+        AgentRuntimeOverride.objects
+        .filter(agent_id=agent_id)
+        .values_list("timeout_seconds", flat=True)
+        .first()
+    )

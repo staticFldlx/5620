@@ -233,3 +233,24 @@ class AgentState(DomainModel):
     agent_id = models.CharField(max_length=32, unique=True)
     status = models.CharField(max_length=16, default="healthy")  # healthy | degraded | paused
     note = models.TextField(blank=True)
+
+class AgentRuntimeOverride(models.Model):
+    """Persistent, agent-specific runtime configuration."""
+
+    agent_id = models.CharField(
+        max_length=100,
+        unique=True,
+    )
+
+    timeout_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "governance_agent_runtime_override"
+
+    def __str__(self):
+        return f"{self.agent_id}: {self.timeout_seconds}"
