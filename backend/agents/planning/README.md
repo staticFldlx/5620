@@ -42,7 +42,11 @@ policy, not a claim that Stage 1 mandates this lesson frequency.
   plan/stage/lesson changes; runtime trace records the failure.
 - An alternative-time confirmation returns through the existing reply mechanism.
   No plan is activated by a student confirmation. Founder cases resume the
-  original task after the shared teacher/catalogue data has been updated.
+  original task with a verified decision: `widen_match` relaxes subject matching
+  (never availability, teacher eligibility or human approval), while an unchanged
+  `request_teacher` search returns `teacher_catalogue_update_required` instead
+  of endlessly opening identical cases. An inherited widening decision is recorded
+  in draft history for later correction rounds.
 - Model prompts omit account names/emails and use a restricted set of learning
   history kinds. Student ownership and assigned-teacher access are checked.
 - `fake.py` is an offline demo hook, invoked only by the shared fake-provider
@@ -57,8 +61,9 @@ These are limitations, not completed Stage 1 features:
    subject-area words with the objective and focus skills. TeacherProfile has no
    English proficiency/teaching-level field. Searching all teachers, widening
    matching criteria and level-based ranking need a shared teacher catalogue
-   selector and an agreed capability contract. Founder decisions currently resume
-   against updated shared data; they do not invent a teacher or qualification.
+   selector and an agreed capability contract. Available candidates are deduplicated,
+   checked for an active teacher role and tried until a compatible multi-stage
+   schedule is found. Tests expose the invisible-third-teacher limitation.
 2. **Stage materials:** `create_plan` handles the courses M2M, but passes any
    `materials` key into `PlanStage.objects.create`, which Django rejects for an
    M2M. Materials are retrieved and available through stage courses; direct
@@ -66,8 +71,10 @@ These are limitations, not completed Stage 1 features:
    deliberately does not bypass the write layer.
 3. **Replacing existing bookings:** the domain has no service for cancelling or
    migrating all future lessons when superseding a plan or replacing a teacher.
-   Existing bookings are preserved and treated as conflicts. Their migration
-   requires an agreed shared service, not direct ORM changes in this agent.
+   Replacement is now explicitly blocked before writes when the old teacher has
+   future proposed/confirmed/rescheduling-required lessons, and checked again at
+   activation. Replacement without future bookings works and is transactional.
+   Migration of existing bookings requires an agreed shared service.
 4. **Concurrent scheduling:** `book_lesson` checks availability/conflicts but
    does not lock a shared student/teacher scheduling resource. Planning's writes
    are transactional and suitable for the documented serial worker/SQLite demo;
@@ -88,6 +95,8 @@ These are limitations, not completed Stage 1 features:
 `plan_not_found`, `lesson_not_found`, `review_pending`, `invalid_curriculum`,
 `invalid_llm_output`, `llm_unavailable`, `invalid_human_decision`,
 `invalid_plan_state`, `invalid_lesson_state`, `stale_plan`, `plan_update_failed`,
+`planning_data_changed`, `teacher_reassignment_unavailable`,
+`teacher_catalogue_update_required`, `no_available_slots`, `invalid_slot_request`,
 plus the shared scheduling error codes (`slot_conflict`,
 `outside_teacher_availability`, `invalid_slot`, `slot_required`,
 `invalid_slot_selection`).
@@ -106,3 +115,77 @@ dispatcher, central EscalationManager, audit, and contract validation. They cove
 generation, invalid curricula/output, missing data, Founder routing/resumption,
 teacher corrections, review/activation, idempotence, rollback, revision safety,
 alternative-time continuation, ownership, scheduling conflicts and offline mode.
+
+## Review investigation (2026-10-21)
+
+Only Planning implementation, this document and `tests/test_planning.py` were
+changed. No shared components, other agents, contracts or migrations were edited.
+The original implementation is preserved and patched rather than replaced.
+
+| Finding | Verified against current code | Correction / regression evidence | Outcome |
+| --- | --- | --- | --- |
+| Escalation result double wrapping | Not present. `dispatcher.py:217` passes `result=payload` as a keyword to `transition_task`; it does not store the `record` dictionary as the result. `manager.py:61` correctly reads top-level controls. | `test_pending_review_contract_and_control_metadata_are_not_double_wrapped`; `test_teacher_review_api_runs_real_resumption` exercises both human actions through the API. No shared correction required. | Resolved verification |
+| Paused frontend results | Review results must satisfy the contract before completion. `_pause` at `dispatcher.py:280` injects review IDs and validates; `_consolidate` at line 300 merges each nonfailed task's business `result`. | Pending review, initial-assessment/session preservation, revision, reschedule, confirm-slot and replacement tests assert real external contracts. Escalated revisions now retain their existing plan in the business result. | Fixed and tested |
+| Teacher matching | Current/intake only; first suitable teacher previously ended the search without checking the next candidate's availability. No level field or all-teacher selector exists. | `_teachers` now checks all eligible candidates exposed by existing selectors; complete stage schedules are tried for each. `test_matching_skips_unavailable_current_teacher_and_tries_intake`; `test_extra_qualified_teacher_is_not_visible_without_shared_catalogue`. | Local defect fixed; full matching blocked by shared read interface |
+| Unused / bypassed schemas | `RevisePlanTaskInput` was unused and duplicated the task envelope; `PlanResult` was not executed. | Removed duplicate envelope; `_review` executes `PlanResult`; dispatch validates business outputs with Planning-owned plan/slot/lesson/message schemas. Slot inputs and failures also have active validation. The final frontend record contract remains Orchestration-owned. | Fixed |
+| Unsafe approval assumptions | Missing latest case and null stored decisions could cause exceptions; case freshness was not checked for correction requests. | Both decision paths validate case freshness, resolved decision, origin task, student/plan, active assigned teacher and plan version. Tests cover missing/latest/superseding cases, null decision, fabricated approval, unrelated teacher, outdated plan and duplicate activation. | Fixed |
+| Teacher replacement bookings | New plan activation could leave old future bookings attached to the previous teacher. No shared reassignment operation exists. | Block before mutation when future bookings exist, recheck at activation. Tests cover success without future bookings, explicit blocked replacement preserving all bookings, and rollback on storage failure. | Safe local behaviour fixed; migration blocked by shared service |
+| Scheduling granularity and preferences | Frontend displays stage week ranges and independent Lesson records (`student.tsx` Plan/Lessons panels). No weekly lesson frequency requirement is present. Later stages and old draft fallback could bypass changed student preferences. | Retain documented stage-start lesson policy; check every stage against current student preferences and shared teacher/student conflict rules. Only explicit alternative consent permits a recurring local-time override. Alternative lists are filtered against the full stage schedule. DST, later-stage conflicts, changed preferences and selection/resumption tests cover this. | Fixed; frequency remains a documented policy |
+| All configured tasks / special statuses | Pipelines name the six registered Planning task types. `TRIGGER_REPLAN` is handled by `_insert_replan` and capped once per request. Reply slot IDs could lose to the original `slot` value. | Reply selection takes precedence, slot request references are ownership/lesson checked. Initial assessment and automatic replanning tests use actual Dispatcher, contracts and persisted confirmed assessment data. UC07 upstream recommendation/evidence now reaches the model and review. | Fixed and tested |
+| Founder continuation | Previously reran identical criteria regardless of decision. | Validate the actual resolved Founder case; `widen_match` changes subject criteria, `request_teacher` uses updated shared data or reports the exact dependency once. Tests cover both changed and unchanged data, and widening. | Fixed within available shared data |
+| Offline catalogue selection | Previously scheduled every course and could exceed the 104-week schema bound. | Choose relevant goal/skill courses below supported target levels, include prerequisite closure, reject cycles/missing prerequisites, cap at 52 two-week stages. Empty/unsuitable catalogues yield no fabricated stages; both structured-output attempts are scripted. Relevant-course, empty/unsuitable/cyclic/large-catalogue tests verify it. | Fixed; remains offline-only |
+
+### Exact shared interface requests and reproductions
+
+- **LearningDomain teacher read interface:** `domain/learning/selectors.py:75`
+  provides only `current_teacher`; `domain/governance/selectors.py:151` looks up
+  one configured email. `access_control/identity/models.py:20` stores subject areas
+  and timezone, but no teaching-level field. Minimum shared correction: expose
+  all authorised active teachers with verified profile/availability information
+  through a LearningDomain selector. Agree how teaching-level capability is
+  represented before implementing level filtering. Planning must not query
+  identity models or inspect teacher accounts with direct ORM queries.
+  Reproduce with `pytest tests/test_planning.py -k extra_qualified_teacher`.
+  Full UC03 teacher search and replacement when the only eligible new teacher is
+  outside the exposed selectors remain blocked.
+- **LearningDomain reassignment write interface:**
+  `domain/learning/services.py:167` creates a lesson, and line 172 moves its time
+  while retaining teacher/student/stage. There is no operation to migrate/cancel
+  all future old-teacher bookings. Minimum shared correction: an authorised atomic
+  reassignment operation that validates all affected slots, preserves completed
+  lesson history, migrates or cancels future bookings according to an agreed
+  policy, records audits, and rolls back plan/lesson changes together on failure.
+  Reproduce with `pytest tests/test_planning.py -k replacement_with_existing_future`.
+  Planning currently fails safely with `teacher_reassignment_unavailable`.
+- **Materials and production concurrency:** the existing service gaps described
+  above remain unchanged. No upward imports or direct model mutation were added
+  to work around them.
+
+### UC03 / UC07 coverage and limits
+
+UC03 profile/confirmed assessment consumption, competency-oriented stages,
+catalogue/material retrieval, prerequisites, study budget, stage milestones,
+available-teacher matching, conflict checks, alternatives, teacher review,
+correction and postapproval activation have executable coverage. Full catalogue
+teacher matching/level matching is still blocked as above. Stage materials remain
+accessible through real courses rather than the unsupported stage-material write.
+
+UC07 supports assigned-teacher manual changes without a Teaching Assistant
+recommendation, upstream recommendations/evidence where provided by the shared
+workflow, corrections followed by another review, and safe version replacement.
+Tests cover a corrected revision becoming active and database failures retaining
+the old active plan. It does not replace Teaching Assistant recommendation logic
+or invent milestone scores. Migrating existing bookings across teachers remains
+blocked; no claim of full UC03/UC07 completion is made for those shared gaps.
+
+The initial-assessment integration tests enter at the real Planning boundary with
+a persisted confirmed assessment and a recorded upstream assessment task; they do
+not claim to retest AssessmentAgent's internal evaluation logic. API review tests
+exercise actual authentication, review endpoint, manager and Dispatcher resumption.
+
+Verification executed for this review: **60 Planning tests**, **3 architecture
+tests**, **93 tests in the focused Planning/layers/pipeline/API run**, and
+**181 tests in the complete backend suite**, all passed. `git diff --check` passed.
+No external LLM calls were used. The invisible-teacher and existing-booking tests
+assert and document shared blockers; their passing does not mean the missing
+shared capabilities have been implemented.

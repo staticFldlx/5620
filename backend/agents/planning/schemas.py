@@ -26,6 +26,8 @@ class PlanningTask(BaseModel):
     subject_id: str | None = None
     reply: dict[str, Any] | None = None
     previous: dict[str, Any] | None = None
+    upstream: dict[str, Any] | None = None
+    upstream_data: dict[str, Any] | None = None
 
 
 class PlanRevisionRequest(PlanningSchema):
@@ -35,30 +37,15 @@ class PlanRevisionRequest(PlanningSchema):
     requested_change: str | None = None
 
 
-class RevisePlanTaskInput(PlanningSchema):
-    """Payload of planning.revise_plan, both direct and automatic replan.
-
-    A direct `revise_plan` request requires a reason. However, the Dispatcher
-    can also insert `planning.revise_plan` after another agent's result; that
-    task carries the original request's input plus an `upstream` payload,
-    which may not contain a revision reason.
-    """
-
-    input: dict[str, Any]
-    context_id: str = ""
-    upstream: dict[str, Any] | None = None
-    upstream_data: dict[str, Any] | None = None
-    decision: PlanningDecision | None = None
-    case_id: str | None = None
-    subject_id: str | None = None
-
-    @model_validator(mode="after")
-    def validate_direct_revision(self) -> RevisePlanTaskInput:
-        if self.upstream is None and self.decision is None:
-            # Direct requests already pass the shared frontend contract, but
-            # this also protects callers of this internal schema in isolation.
-            PlanRevisionRequest.model_validate(self.input)
-        return self
+class SlotRequest(BaseModel):
+    """Planning input boundary; shared frontend contracts may carry extra keys."""
+    model_config = ConfigDict(extra="allow")
+    lesson_id: NonBlank | None = None
+    slot: NonBlank | None = None
+    requested_time: NonBlank | None = None
+    starts_at: NonBlank | None = None
+    slot_request_id: NonBlank | None = None
+    slot_id: NonBlank | None = None
 
 
 class PlanStageDraft(PlanningSchema):
@@ -108,11 +95,8 @@ class PlanResult(PlanningSchema):
 
     `plan` must come from the domain plan serializer; Orchestration validates
     the final frontend-facing PlanReviewResult for `revise_plan`.
-    The control keys are consumed by EscalationManager when the shared layer
-    correctly unwraps AgentTask.result['result'].
-
-    `resume` is explicit because the same schema can represent either a new
-    plan or a revision. The resumed task must be handled by PlanningAgent.
+    Control keys are stored directly in AgentTask.result; only `plan` is
+    placed in the nested student-facing business result.
     """
 
     plan: dict[str, Any]
@@ -130,3 +114,33 @@ class PlanResult(PlanningSchema):
         if self.subject_id != str(self.plan.get("id", "")):
             raise ValueError("subject_id must equal the persisted plan.id")
         return self
+
+
+class PlanBusinessResult(PlanningSchema):
+    plan: dict[str, Any]
+
+
+class SlotResult(PlanningSchema):
+    id: NonBlank
+    starts_at: NonBlank
+    ends_at: NonBlank
+
+
+class SlotBusinessResult(PlanningSchema):
+    lesson_id: str
+    slots: list[SlotResult]
+    proposed_slot: str | None = None
+    question: str | None = None
+    message: str
+
+
+class LessonBusinessResult(PlanningSchema):
+    lesson: dict[str, Any]
+
+
+class MessageBusinessResult(PlanningSchema):
+    message: NonBlank
+
+
+class FailurePayload(PlanningSchema):
+    message: NonBlank
