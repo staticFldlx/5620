@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "domain.learning",
     "domain.governance",
     "orchestration.task_queue",
+    "agents.tech_operations",
 ]
 
 MIDDLEWARE = [
@@ -70,7 +71,16 @@ if not DEBUG:
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
-TEMPLATES: list = []
+TEMPLATES: list = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [],
+        },
+    },
+]
 
 
 def _database() -> dict:

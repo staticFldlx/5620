@@ -9,6 +9,7 @@ from django.conf import settings
 
 from agents.runtime import AgentRuntime, AIAgent, RuntimeConfig, TaskInput
 from infrastructure.llm import FakeAdapter, LLMAdapter, build_adapter
+from domain.governance import selectors as governance_selectors
 
 
 class AgentNotImplemented(LookupError):
@@ -64,13 +65,36 @@ def shared_adapter() -> LLMAdapter:
     return _shared_adapter
 
 
-def runtime_config() -> RuntimeConfig:
-    models = {"fast": settings.LLM_MODEL_FAST or settings.LLM_MODEL_DEFAULT, "default": settings.LLM_MODEL_DEFAULT}
+
+def runtime_config(
+    agent_id: str | None = None,
+) -> RuntimeConfig:
+    """Build runtime config with optional agent-specific override."""
+
+    models = {
+        "fast": (
+            settings.LLM_MODEL_FAST
+            or settings.LLM_MODEL_DEFAULT
+        ),
+        "default": settings.LLM_MODEL_DEFAULT,
+    }
+
+    timeout = settings.LLM_TIMEOUT_SECONDS
+
+    if agent_id is not None:
+        override = governance_selectors.agent_timeout_override(
+            agent_id
+        )
+
+        if override is not None:
+            timeout = override
+
     return RuntimeConfig(
         confidence_threshold=settings.AGENT_CONFIDENCE_THRESHOLD,
         models=models,
-        timeout_s=settings.LLM_TIMEOUT_SECONDS,
+        timeout_s=timeout,
     )
+
 
 
 def build_runtime(agent_cls: type[AIAgent], task: TaskInput) -> AgentRuntime:
@@ -79,7 +103,10 @@ def build_runtime(agent_cls: type[AIAgent], task: TaskInput) -> AgentRuntime:
     script = getattr(agent_cls, "fake_script", None)
     if settings.LLM_PROVIDER == "fake" and callable(script):
         adapter = FakeAdapter(script(task), default="")
-    return AgentRuntime(adapter, runtime_config())
+    return AgentRuntime(
+        adapter,
+        runtime_config(agent_cls.agent_id),
+    )
 
 
 def reset_caches() -> None:

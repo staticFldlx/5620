@@ -11,6 +11,7 @@ from agents.runtime import AgentResult, AgentStatus
 from domain.learning import services as learning_services
 from domain.learning.models import AssessmentSession, LessonMaterial
 from domain.learning.views import proficiency_view
+from domain.governance.models import EscalationCase
 from tests.conftest import Api, key
 
 pytestmark = pytest.mark.django_db
@@ -244,8 +245,33 @@ def test_cases_agents_and_proposals(alex, emily):
 
     paused = alex.post("/agents/assistant/decision", {"action": "pause", "note": "Wrong sources"}).json()
     assert paused["status"] == "paused" and paused["agent"]["status"] == "paused"
-    correction = alex.post("/agents/technical/decision", {"action": "request_correction", "note": "Check the index"}).json()
-    assert correction["status"] == "requested" and correction["follow_up"]["error"]["code"] == "agent_not_implemented"
+
+    correction = alex.post(
+        "/agents/technical/decision",
+        {
+            "action": "request_correction",
+            "note": "Check the index",
+        },
+    ).json()
+
+    assert correction["status"] == "requested"
+
+    follow_up = correction["follow_up"]
+
+    # The implemented Technical Manager escalates
+    # unstructured correction requests for human review.
+    assert follow_up["status"] == "escalated"
+    assert follow_up["error"] is None
+
+    review_case = EscalationCase.objects.filter(
+        task__request_id=follow_up["id"],
+        task__task_type="tech_operations.apply_correction",
+        kind=EscalationCase.Kind.REVIEW,
+        status=EscalationCase.Status.OPEN,
+    ).first()
+
+    assert review_case is not None
+
     assert alex.post("/agents/unknown/decision", {"action": "pause", "note": "x"}).status_code == 404
 
     assert alex.get(f"/proposals/{key('UP-07')}").json()["execution"]["status"] == "not_started"

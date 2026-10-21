@@ -202,3 +202,69 @@ def request_agent_correction(actor: Any, agent_id: str, *, note: str, case_id: s
 def touch(obj: models.Model, when: datetime) -> None:
     """Seeding helper: backdate created_at/updated_at (management commands only)."""
     type(obj).objects.filter(pk=obj.pk).update(created_at=when, updated_at=when)
+
+
+def set_agent_timeout_override(
+    actor,
+    agent_id: str,
+    timeout_seconds: int | None,
+):
+    """Persist an approved timeout override.
+
+    Approval must be verified by the calling executor.
+    """
+
+    from .models import AgentRuntimeOverride
+
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        raise ValueError("Invalid agent ID")
+
+    if timeout_seconds is not None:
+        if (
+            type(timeout_seconds) is not int
+            or not 5 <= timeout_seconds <= 120
+        ):
+            raise ValueError("Invalid timeout value")
+
+    override, _ = AgentRuntimeOverride.objects.update_or_create(
+        agent_id=agent_id,
+        defaults={
+            "timeout_seconds": timeout_seconds,
+        },
+    )
+
+    return override
+
+
+def update_configuration_rollback_metadata(
+    actor,
+    proposal,
+    *,
+    previous_value,
+    applied_value,
+):
+    """Persist rollback metadata for a configuration proposal."""
+
+    if proposal.status != "approved":
+        raise ValueError("Proposal must be approved")
+
+    if proposal.change_type != "configuration":
+        raise ValueError("Not a configuration proposal")
+
+    return _save(
+        actor,
+        proposal,
+        "proposal.rollback_metadata_saved",
+        {
+            "before": (
+                "default"
+                if previous_value is None
+                else str(previous_value)
+            ),
+            "after": str(applied_value),
+        },
+        {
+            "setting": "timeout_seconds",
+            "rollback_available": True,
+        },
+    )
