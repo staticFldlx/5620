@@ -1,71 +1,4 @@
 
-"""Planning Agent task payloads and business data models.
-
-Task payloads describe TaskInput.payload, *not* TaskInput itself.
-PlanDraft is an unpersisted LLM output. PlanResult is an AgentResult.payload
-for a persisted, pending-review plan; it is not an AgentResult replacement.
-"""
-
-from __future__ import annotations
-
-from typing import Annotated, Any, Literal
-
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    field_validator,
-    model_validator,
-)
-
-from orchestration.task_queue.contracts import PlanRecord
-
-
-NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-
-
-class PlanningSchema(BaseModel):
-    """Do not silently accept fields absent from Planning's task contract."""
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class PlanReviewDecision(PlanningSchema):
-    """Teacher decision sent back by EscalationManager."""
-
-    action: Literal["approve", "request_changes"]
-    note: NonBlank
-    decided_by: str | None = None
-
-
-class FounderCaseDecision(PlanningSchema):
-    """Founder decision for a business escalation, not a plan approval."""
-
-    action: Literal["widen_match", "request_teacher", "resolve"]
-    note: NonBlank
-    decided_by: str | None = None
-    requested_action: str | None = None
-
-
-PlanningDecision = PlanReviewDecision | FounderCaseDecision
-
-
-class GeneratePlanInput(PlanningSchema):
-    """Payload of planning.generate_plan, including an optional approval resume.
-
-    TaskInput.student_id is supplied separately by the shared runtime.
-    The assessment output is not specified yet, so upstream remains a dict.
-    """
-
-    input: dict[str, Any]
-    context_id: str = ""
-    upstream: dict[str, Any] | None = None
-    upstream_data: dict[str, Any] | None = None
-    decision: PlanningDecision | None = None
-    case_id: str | None = None
-    subject_id: str | None = None
-
 
 class PlanRevisionRequest(PlanningSchema):
     """Student/teacher-initiated revision input (matches the frontend keys)."""
@@ -145,8 +78,8 @@ class PlanDraft(PlanningSchema):
 class PlanResult(PlanningSchema):
     """Business payload for a pending-review plan.
 
-    `plan` must come from learning.views.plan_view(persisted_plan); it also
-    satisfies task_queue.contracts.PlanReviewResult for `revise_plan`.
+    `plan` must come from the domain plan serializer; Orchestration validates
+    the final frontend-facing PlanReviewResult for `revise_plan`.
     The control keys are consumed by EscalationManager when the shared layer
     correctly unwraps AgentTask.result['result'].
 
@@ -154,7 +87,7 @@ class PlanResult(PlanningSchema):
     plan or a revision. The resumed task must be handled by PlanningAgent.
     """
 
-    plan: PlanRecord
+    plan: dict[str, Any]
     subject_type: Literal["plan"] = "plan"
     subject_id: NonBlank
     trigger: NonBlank = "A teacher must review this learning plan."
@@ -166,6 +99,6 @@ class PlanResult(PlanningSchema):
 
     @model_validator(mode="after")
     def validate_subject(self) -> PlanResult:
-        if self.subject_id != self.plan.id:
+        if self.subject_id != str(self.plan.get("id", "")):
             raise ValueError("subject_id must equal the persisted plan.id")
         return self
