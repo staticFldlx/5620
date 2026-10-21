@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from django.utils import timezone as django_timezone
 
 from access_control.identity.models import User
 from domain.common import DomainError, WriterNotAllowed
@@ -107,7 +108,9 @@ def test_lesson_slot_checks_teacher_window_and_overlaps():
     assert moved.starts_at == sydney(22, 19)
 
 
-def test_availability_change_cannot_strand_a_booked_lesson():
+def test_availability_change_cannot_strand_a_booked_lesson(monkeypatch):
+    # Fixture lessons have fixed dates; freeze the clock before L-021 (2026-10-15) so it is still upcoming.
+    monkeypatch.setattr(django_timezone, "now", lambda: datetime(2026, 10, 14, tzinfo=timezone.utc))
     emily = user("teacher-emily")
     with pytest.raises(DomainError) as exc:
         # removing Thursday would strand Sophia's lesson on 2026-10-15
