@@ -18,6 +18,7 @@ import type {
   Assessment,
   Interaction,
   Material,
+  RequestEnvelope,
   StudentRecord,
 } from "@/api/types"
 import {
@@ -319,12 +320,56 @@ export function StudentGoal() {
     student?.profile.target_level || "B2"
   )
   const [summary, setSummary] = useState("")
+  // The Coordinator may ask a follow-up question first (UC01 3a); the answer goes back to the same request.
+  const [question, setQuestion] = useState<{ id: string; text: string } | null>(
+    null
+  )
+  const [answer, setAnswer] = useState("")
+  const [assessmentNext, setAssessmentNext] = useState(false)
+  function show(envelope: RequestEnvelope) {
+    if (
+      envelope.status === "awaiting_confirmation" &&
+      envelope.phase === "follow_up_question"
+    ) {
+      setQuestion({ id: envelope.id, text: String(envelope.result.question) })
+      setSummary("")
+    } else {
+      setQuestion(null)
+      setSummary(String(envelope.result.summary || goal.slice(0, 90)))
+    }
+  }
   async function organise() {
     if (!goal.trim()) return
+    setAssessmentNext(false)
     const result = await run(() =>
       api.request("collect_goal", { goal_text: goal, focus_skills: skills })
     )
-    if (result) setSummary(String(result.result.summary || goal.slice(0, 90)))
+    if (result) show(result)
+  }
+  async function reply() {
+    if (!question || !answer.trim()) return
+    const result = await run(() =>
+      api.request("collect_goal", { answer }, undefined, question.id)
+    )
+    if (result) {
+      setAnswer("")
+      show(result)
+    }
+  }
+  async function confirm() {
+    const result = await run(
+      () =>
+        api.request("confirm_goal", {
+          goal_text: goal,
+          goal_summary: summary,
+          focus_skills: skills,
+          weekly_hours: hours,
+          self_level: selfLevel,
+          target_level: targetLevel,
+        }),
+      "Learning goal saved."
+    )
+    if (result) setAssessmentNext(result.phase === "initial_assessment_next")
   }
   return (
     <Page
@@ -341,6 +386,7 @@ export function StudentGoal() {
               onChange={(e) => {
                 setGoal(e.target.value)
                 setSummary("")
+                setQuestion(null)
               }}
               rows={6}
               placeholder="Describe your goal and needs"
@@ -415,20 +461,7 @@ export function StudentGoal() {
             <Button
               className="action primary"
               disabled={busy || !summary}
-              onClick={() =>
-                run(
-                  () =>
-                    api.request("confirm_goal", {
-                      goal_text: goal,
-                      goal_summary: summary,
-                      focus_skills: skills,
-                      weekly_hours: hours,
-                      self_level: selfLevel,
-                      target_level: targetLevel,
-                    }),
-                  "Learning goal saved."
-                )
-              }
+              onClick={confirm}
             >
               Confirm goal <Check size={15} />
             </Button>
@@ -438,7 +471,27 @@ export function StudentGoal() {
           <div className="visual-panel">
             <AIVisual variant="path" />
           </div>
-          {summary ? (
+          {question ? (
+            <>
+              <Pill tone="warn">The Coordinator needs one more detail</Pill>
+              <h3>{question.text}</h3>
+              <Textarea
+                value={answer}
+                onChange={(e) => setAnswer(e.target.value)}
+                rows={3}
+                placeholder="Your answer"
+              />
+              <div className="button-row">
+                <Button
+                  className="action secondary"
+                  onClick={reply}
+                  disabled={busy || !answer.trim()}
+                >
+                  Answer <ArrowRight size={15} />
+                </Button>
+              </div>
+            </>
+          ) : summary ? (
             <>
               <Pill tone="info">Ready for your confirmation</Pill>
               <h3>{summary}</h3>
@@ -446,6 +499,11 @@ export function StudentGoal() {
                 Skills: {skills.join(", ") || "To be discussed"} · {hours} hours
                 a week
               </p>
+              {assessmentNext && (
+                <Link className="text-link" to="/s3">
+                  Start your placement assessment →
+                </Link>
+              )}
             </>
           ) : (
             <>

@@ -1,1 +1,1 @@
-"""Agents layer. Each sub-package (except runtime) belongs to one agent owner; see docs/shared-conventions.md."""
+"""Agents layer: the shared runtime and four agents (the Coordinator lives in orchestration); see backend/README.md section 5."""

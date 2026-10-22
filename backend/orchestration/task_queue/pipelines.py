@@ -5,7 +5,7 @@ each agent owner registers its task types here by PR. Task type format: <agent_i
 
 Human checkpoints are not listed as steps: an agent returns NEEDS_ESCALATION or AWAITING_APPROVAL
 with payload["resume"] = <task_type>, and the EscalationManager enqueues that task after the
-human decision (see docs/shared-conventions.md).
+human decision (see backend/README.md 4.3).
 """
 
 from __future__ import annotations

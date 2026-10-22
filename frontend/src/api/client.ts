@@ -14,7 +14,7 @@ import type {
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
-  timeout: 10000,
+  timeout: 30000, // real LLM calls (thinking models) often take 10-30 s
 })
 http.interceptors.request.use((config) => {
   const session = localStorage.getItem("lingopath-session")

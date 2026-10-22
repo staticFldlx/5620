@@ -57,7 +57,7 @@ class EscalationManager:
         return confidence is not None and confidence < settings.AGENT_CONFIDENCE_THRESHOLD
 
     def create_case(self, task: AgentTask, *, kind: str) -> EscalationCase:
-        """Open a case from the control keys of the agent's payload (see docs/shared-conventions.md)."""
+        """Open a case from the control keys of the agent's payload (subject_type, subject_id, trigger, resume, route_to, ...)."""
         control = task.result or {}  # the AgentResult.payload the agent returned
         subject_type = control.get("subject_type") or DEFAULT_SUBJECT.get(task.target_agent, "business")
         case = gov.create_case(

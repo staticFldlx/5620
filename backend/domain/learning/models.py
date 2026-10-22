@@ -1,4 +1,4 @@
-"""LearningDomain (Fig 6b) plus the supplementary fields listed in docs/shared-conventions.md.
+"""LearningDomain (Fig 6b) plus the supplementary fields the agents and the frontend need.
 
 `status` values are owned by the writing agent's state machine (SM2 assessment, SM3 plan,
 SM4 lesson); the shared layer only guarantees the field exists. Values already used by the

@@ -7,7 +7,7 @@ Act       generate items, score answers, write the session and proficiency profi
           to the Course Consultant (pipeline step C1) or to the teacher (EscalationManager).
 
 One conduct_assessment task runs per item: it returns NEEDS_INPUT with the session id, and the
-Orchestrator hands the student's answer back to the same task type (docs/shared-conventions.md 3.5).
+Orchestrator hands the student's answer back to the same task type (backend/README.md 4.2).
 Every decision is written to the trace with runtime.note() for GET /requests/{id}/trace.
 """
 

@@ -2,7 +2,7 @@
 
 LLM outputs are kept flat (no nested models) so the JSON schema has no $defs, which some
 OpenAI-compatible endpoints (e.g. Gemini) do not accept. Task payload schemas document what
-the Orchestrator hands to each task type (docs/shared-conventions.md 3.4).
+the Orchestrator hands to each task type (input, reply / previous, decision / subject_id).
 """
 
 from __future__ import annotations
