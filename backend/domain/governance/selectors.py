@@ -59,6 +59,12 @@ def latest_task_for_agent(agent_id: str) -> AgentTask | None:
     return AgentTask.objects.filter(target_agent=agent_id).order_by("-created_at").first()
 
 
+def latest_task_result(student: Any, task_type: str) -> dict | None:
+    """Result payload of the student's latest succeeded task of this type (e.g. the Coordinator's goal draft)."""
+    found = AgentTask.objects.filter(student=student, task_type=task_type, status=AgentTask.Status.SUCCEEDED).order_by("-created_at").first()
+    return found.result if found else None
+
+
 def recent_tasks(limit: int = 50) -> QuerySet[AgentTask]:
     return AgentTask.objects.exclude(status=AgentTask.Status.QUEUED).order_by("-created_at")[:limit]
 

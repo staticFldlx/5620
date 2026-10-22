@@ -82,7 +82,7 @@ def test_founder_workspace_has_operations_only(alex):
     agents = {a["id"]: a for a in ops["agents"]}
     assert set(agents) == {"coordinator", "assessment", "consultant", "assistant", "technical"}  # public ids (A7)
     assert agents["assistant"]["status"] == "degraded"
-    assert agents["coordinator"]["status"] == "not_implemented"
+    assert agents["coordinator"]["status"] == "healthy"  # all five agents are implemented
     assert {c["kind"] for c in ops["cases"]} == {"business", "technical"}
     assert len(ops["proposals"]) == 3 and ops["audit"][0]["action"]
     assert any(log["task_status"] == "failed" for log in ops["logs"])
