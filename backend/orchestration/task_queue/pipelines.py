@@ -93,6 +93,8 @@ _TABLE = [
     Pipeline("start_assessment", ("assessment.conduct_assessment", "planning.generate_plan"), frozenset({S, T}), "self_or_student_id", _needs_goal, public=False),
     Pipeline("decision_follow_up", (), frozenset({T, F}), "none", public=False),
     Pipeline("agent_correction", ("tech_operations.apply_correction",), frozenset({F}), "none", public=False),
+    # UC10: started by `manage.py monitor_agents` as the system, never by a user.
+    Pipeline("system_monitoring", ("tech_operations.detect_anomalies",), frozenset(), "none", public=False),
 ]
 
 PIPELINES: dict[str, Pipeline] = {p.request_type: p for p in _TABLE}

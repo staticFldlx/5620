@@ -20,6 +20,7 @@ class DiagnosisResult(BaseModel):
 
     recommended_action: Literal[
         "retry_request",
+        "resume_agent",
         "request_founder_review",
         "no_action",
     ]
@@ -50,6 +51,10 @@ Rules:
 - Recommend only one of the allowed actions.
 - Never execute recovery actions.
 - If evidence is insufficient, recommend founder review.
+- agent_status gives each affected agent's operational switch
+  (healthy, degraded or paused). A paused agent fails every task.
+  Recommend resume_agent only when an affected agent is paused
+  and the pause explains the failures.
 - Return a structured diagnosis matching the requested schema.
 
 Diagnostic requirements:
@@ -168,10 +173,19 @@ def diagnose_incident(
                 )[:500],
             })
 
+    agent_status = incident_data.get("agent_status", {})
+
+    if not isinstance(agent_status, dict):
+        agent_status = {}
+
     safe_data = {
         "incident_id": str(
             incident_data.get("incident_id", "")
         )[:100],
+        "agent_status": {
+            str(agent)[:50]: str(status)[:20]
+            for agent, status in list(agent_status.items())[:10]
+        },
         "subject": str(
             incident_data.get("subject", "")
         )[:200],

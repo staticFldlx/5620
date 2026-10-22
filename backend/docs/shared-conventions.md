@@ -213,7 +213,8 @@ class PlanningAgent(AIAgent):          # 放在 agents/planning/agent.py，类�
 | generate_material | 教师 | teaching_support.generate_material（用 `create_material_draft` 写草稿） | `material`（`material_view`） |
 | start_assessment（`POST /assessments`） | 学生（initial / milestone）、教师（directed） | assessment.conduct_assessment → planning.generate_plan | `session_id` |
 | decision_follow_up（内部） | — | 人工决定后执行的 resume task_type | 不限 |
-| agent_correction（内部） | Founder | tech_operations.apply_correction | 不限 |
+| agent_correction（内部） | Founder | tech_operations.apply_correction（起草提案 → AWAITING_APPROVAL，resume：tech_operations.execute_proposal） | 不限 |
+| system_monitoring（内部） | 系统（`manage.py monitor_agents`） | tech_operations.detect_anomalies（检测后诊断新事故） | 不限 |
 
 关于 reschedule / confirm_slot 的输入：前端发送的 `slot` 是不带时区的本地时间（`YYYY-MM-DDTHH:mm`），按学生 profile 里的 timezone 解释；confirm_slot 还会带上浏览器换算好的 `starts_at`（UTC），但这个值只能作参考，必须在服务端重新检查冲突。契约里的 `requested_time`、`slot_request_id`、`slot_id` 也可以接收。
 

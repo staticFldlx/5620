@@ -11,7 +11,7 @@ from agents.assessment.agent import _is_repeat
 from agents.runtime import AgentResult, AgentStatus
 from domain.governance.models import AgentTask
 from domain.learning import selectors as learning
-from domain.learning.models import AssessmentSession, LearningHistoryEntry
+from domain.learning.models import AssessmentSession, LearningHistoryEntry, LearningPlan
 from orchestration.task_queue import registry
 from tests.conftest import key
 
@@ -120,6 +120,23 @@ def test_steady_answers_publish_a_confirmed_result_and_feed_planning(agent, ivy)
     decisions = [step["decision"] for t in tasks_of(final["id"]) for step in t.trace if step.get("step") == "decision"]
     assert {"skills_selected", "answer_scored", "difficulty_adjusted", "confidence_scored", "result_published"} <= set(decisions)
     assert LearningHistoryEntry.objects.filter(source_agent="assessment", kind="assessment", escalated=False).exists()
+
+
+@pytestmark_db
+def test_assessment_finishes_while_a_plan_draft_awaits_review(ivy):
+    """Real assessment + real Consultant: Ivy's v2 draft is with the teacher, so planning keeps the plan
+    instead of failing the request after the last answer."""
+    plans_before = LearningPlan.objects.filter(student_id=key("student-ivy")).count()
+    session = ivy.post("/assessments", {"student_id": key("student-ivy"), "kind": "milestone"}).json()
+    final = answer_all(ivy, session, [STEADY] * adaptive.MAX_ITEMS)  # every answer returns 200
+    assert final["status"] == "completed" and final["result"]["status"] == "confirmed"
+    request = tasks_of(final["id"]).last().request
+    assert request.status == "completed"
+    planning = request.tasks.get(task_type="planning.generate_plan")
+    assert planning.status == "succeeded"
+    assert any(step.get("decision") == "plan_review_pending" for step in planning.trace)
+    assert str(learning.pending_plan(learning.student(key("student-ivy"))).pk) == key("PL-019-v2")
+    assert LearningPlan.objects.filter(student_id=key("student-ivy")).count() == plans_before
 
 
 @pytestmark_db

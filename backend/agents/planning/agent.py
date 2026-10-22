@@ -77,6 +77,11 @@ class PlanningAgent(AIAgent):
     def _generate_plan(self, task, data, student):
         current = learning.active_plan(student)
         assessment = learning.latest_confirmed_proficiency(student)
+        pending = learning.pending_plan(student)
+        if pending and pending.status == "pending_review" and not self._drafted_by(task, student, pending):
+            # A draft is already with the teacher: keep the new result on record, do not fail the assessment.
+            self.runtime.note("plan_review_pending", plan_id=str(pending.pk))
+            return ok({"plan": plan_view(current or pending)})
         if current and assessment:
             if current.based_on_id == assessment.pk:
                 return ok({"plan": plan_view(current)}, confidence=assessment.confidence)
@@ -85,6 +90,12 @@ class PlanningAgent(AIAgent):
                 "evidence": [{"ref": str(assessment.pk), "summary": assessment.gap_to_goal}],
             }, confidence=assessment.confidence, reason="new_assessment")
         return self._draft(task, data, student)
+
+    @staticmethod
+    def _drafted_by(task, student, plan):
+        """True when this task wrote the draft (a retry reuses it in _draft)."""
+        return any(e.payload.get("task_id") == task.task_id and e.payload.get("plan_id") == str(plan.pk)
+                   for e in learning.history(student, kinds=("plan_draft",)))
 
     def _revise_plan(self, task, data, student):
         if not (data.input.get("reason") or task.payload.get("upstream") or data.decision):

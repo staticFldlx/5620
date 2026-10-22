@@ -9,7 +9,10 @@ from agents.runtime import (
 )
 
 from domain.governance import selectors as governance
+from domain.governance.services import record_proposal_execution
+from domain.governance.views import proposal_view
 
+from . import fake
 from .audit import (
     audit_monitoring_completed,
     audit_anomaly_detected,
@@ -27,9 +30,15 @@ from domain.learning import selectors as learning_selectors
 
 from .record_integrity import check_student_record
 from .plan_integrity import check_plan_versions
-from .correction import validate_correction
-from .correction_proposal import create_correction_proposal
-from domain.governance.models import UpdateProposal
+from .correction import draft_correction, validate_correction
+from .correction_proposal import (
+    create_correction_proposal,
+    create_manual_proposal,
+)
+from .recovery_executor import (
+    execute_approved_recovery,
+    resume_approved_agent,
+)
 
 from .configuration_workflow import (
     execute_configuration_workflow,
@@ -37,6 +46,9 @@ from .configuration_workflow import (
 
 class TechOperationsAgent(AIAgent):
     agent_id = "tech_operations"
+
+    # LLM_PROVIDER=fake: scripted replies for offline demos (spec 8.10).
+    fake_script = staticmethod(fake.script)
 
     task_types = (
         "tech_operations.monitor_agents",
@@ -138,7 +150,7 @@ class TechOperationsAgent(AIAgent):
             )
 
     def detect_system_anomalies(self) -> AgentResult:
-        """Detect anomalies and create operational incidents."""
+        """Detect anomalies, create incidents and diagnose the new ones (UC10 steps 1-4)."""
         try:
             stats = governance.agent_stats()
 
@@ -159,14 +171,6 @@ class TechOperationsAgent(AIAgent):
                     severity=anomaly.severity,
                 )
 
-            return AgentResult(
-                status=AgentStatus.OK,
-                payload={
-                    "detected_count": len(anomalies),
-                    "incidents": persistence,
-                },
-            )
-
         except Exception:
             return AgentResult(
                 status=AgentStatus.FAILED,
@@ -175,6 +179,42 @@ class TechOperationsAgent(AIAgent):
                     "message": "Unable to complete anomaly detection.",
                 },
             )
+
+        # Only new incidents are diagnosed; an open incident keeps its earlier diagnosis.
+        diagnoses = [
+            self._diagnose_new_incident(item["incident_id"])
+            for item in persistence["created"]
+        ]
+
+        return AgentResult(
+            status=AgentStatus.OK,
+            payload={
+                "result": {
+                    "detected_count": len(anomalies),
+                    "incidents": persistence,
+                    "diagnoses": diagnoses,
+                },
+            },
+        )
+
+    def _diagnose_new_incident(self, incident_id: str) -> dict:
+        """A failed diagnosis is recorded but never fails the detection run."""
+
+        if self.runtime is None:
+            return {"incident_id": incident_id, "status": "not_diagnosed"}
+
+        try:
+            return diagnose_and_record(
+                runtime=self.runtime,
+                incident_id=incident_id,
+            )
+        except Exception as exc:
+            self.runtime.note(
+                "diagnosis_failed",
+                incident_id=incident_id,
+                error=f"{type(exc).__name__}: {exc}"[:300],
+            )
+            return {"incident_id": incident_id, "status": "diagnosis_failed"}
 
     def handle_diagnosis(self, task: TaskInput) -> AgentResult:
         """Diagnose an existing technical incident."""
@@ -263,7 +303,7 @@ class TechOperationsAgent(AIAgent):
             )
 
     def handle_correction(self, task: TaskInput) -> AgentResult:
-        """Handle Founder-requested controlled corrections."""
+        """Founder-requested correction (UC09 5a): draft a controlled update proposal (AR12)."""
 
         # Only authorised callers may request technical corrections.
         if task.ctx.actor_role not in ("founder", "system"):
@@ -289,59 +329,113 @@ class TechOperationsAgent(AIAgent):
             "reason",
         )
 
-        # 1. Handle unstructured Founder requests.
-        if not all(field in payload for field in required_fields):
-            note = payload.get("note")
+        try:
+            # 1. Structured requests are validated as they are.
+            if all(field in payload for field in required_fields):
+                try:
+                    correction = validate_correction(payload)
+                except (ValueError, TypeError):
+                    return AgentResult(
+                        status=AgentStatus.FAILED,
+                        reason="invalid_correction_request",
+                    )
 
-            if not isinstance(note, str) or not note.strip():
-                return AgentResult(
-                    status=AgentStatus.FAILED,
-                    reason="missing_correction_note",
+                proposal, created = create_correction_proposal(
+                    correction
                 )
 
-            return AgentResult(
-                status=AgentStatus.NEEDS_ESCALATION,
-                reason="correction_requires_review",
-                payload={
-                    "requested_action": "apply_correction",
-                    "note": note.strip(),
-                    "message": (
-                        "Unstructured correction request received. "
-                        "Manual review is required."
-                    ),
-                },
-            )
+            # 2. The Founder page sends a free-text note: the LLM drafts the proposal.
+            else:
+                note = payload.get("note")
 
-        # 2. Validate structured correction requests.
-        try:
-            correction = validate_correction(payload)
-        except (ValueError, TypeError):
-            return AgentResult(
-                status=AgentStatus.FAILED,
-                reason="invalid_correction_request",
-            )
+                if not isinstance(note, str) or not note.strip():
+                    return AgentResult(
+                        status=AgentStatus.FAILED,
+                        reason="missing_correction_note",
+                    )
 
-        # 3. Create a real UpdateProposal.
-        try:
-            proposal, created = create_correction_proposal(
-                correction
-            )
-        except Exception:
+                proposal, created = self._propose_from_note(
+                    note.strip()
+                )
+
+        except Exception as exc:
             return AgentResult(
                 status=AgentStatus.FAILED,
                 reason="proposal_creation_failed",
+                payload={"message": f"Could not create the proposal: {exc}"},
             )
 
-        # 4. Return approval-required status.
+        view = proposal_view(proposal)
+
+        # An identical proposal is already waiting: no second approval case.
+        if not created:
+            return AgentResult(
+                status=AgentStatus.OK,
+                payload={
+                    "result": {"proposal": view},
+                    "message": "An identical proposal is already waiting for approval.",
+                },
+            )
+
+        # 3. Nothing changes until the Founder approves (Fig 8b). The control keys link the
+        # approval case to the proposal, so approving it resumes execute_proposal here.
         return AgentResult(
             status=AgentStatus.AWAITING_APPROVAL,
             reason="founder_approval_required",
             payload={
-                "proposal_id": str(proposal.pk),
-                "proposal_status": proposal.status,
-                "proposal_created": created,
-                "correction": correction.to_dict(),
+                "result": {"proposal": view},
+                "subject_type": "proposal",
+                "subject_id": str(proposal.pk),
+                "resume": "tech_operations.execute_proposal",
+                "trigger": "Founder approval is required before the correction is applied.",
+                "summary": proposal.title,
             },
+        )
+
+    def _propose_from_note(self, note: str):
+        """Timeout changes become executable configuration proposals; anything else a manual one."""
+
+        draft = draft_correction(self.runtime, note)
+
+        if draft is None:
+            # LLM unavailable: keep the request visible as a manual proposal built from the note.
+            self.runtime.note("correction_draft_unavailable")
+            return create_manual_proposal(
+                note,
+                title=f"Correction request: {note[:80]}",
+                before="As described in the Founder's note.",
+                after=note,
+                validation="The Founder checks the change after it is made.",
+                rollback="Restore the previous state manually.",
+            )
+
+        if draft.kind == "timeout":
+            try:
+                correction = validate_correction({
+                    "agent_id": draft.agent_id,
+                    "setting": "timeout_seconds",
+                    "new_value": draft.new_value,
+                    "reason": note,
+                })
+            except ValueError as exc:
+                self.runtime.note("correction_not_executable", error=str(exc))
+            else:
+                self.runtime.note(
+                    "correction_drafted",
+                    kind="configuration",
+                    agent_id=correction.agent_id,
+                    new_value=correction.new_value,
+                )
+                return create_correction_proposal(correction)
+
+        self.runtime.note("correction_drafted", kind="manual", title=draft.title)
+        return create_manual_proposal(
+            note,
+            title=draft.title,
+            before=draft.before,
+            after=draft.after,
+            validation=draft.validation,
+            rollback=draft.rollback,
         )
 
     def handle_record_integrity(self, task: TaskInput) -> AgentResult:
@@ -456,65 +550,75 @@ class TechOperationsAgent(AIAgent):
                 reason="missing_proposal_id",
             )
 
-        try:
-            proposal = UpdateProposal.objects.get(pk=proposal_id)
+        proposal = governance.proposal(proposal_id)
 
-            if proposal.status != "approved":
-                return AgentResult(
-                    status=AgentStatus.FAILED,
-                    reason="founder_approval_required",
-                )
-
-            action = (proposal.payload or {}).get("action")
-
-            # Manual review does not execute recovery.
-            if (
-                    proposal.change_type == "recovery"
-                    and action == "request_founder_review"
-            ):
-                return AgentResult(
-                    status=AgentStatus.OK,
-                    payload={
-                        "proposal_id": str(proposal.pk),
-                        "action": action,
-                        "execution_status": "manual_review",
-                        "message": (
-                            "Founder review approved. "
-                            "No automatic recovery executed."
-                        ),
-                    },
-                )
-
-            # Approved configuration updates and rollbacks.
-            if proposal.change_type == "configuration":
-                result = execute_configuration_workflow(
-                    str(proposal.pk)
-                )
-
-                return AgentResult(
-                    status=AgentStatus.OK,
-                    payload=result,
-                )
-
-            return AgentResult(
-                status=AgentStatus.FAILED,
-                reason="unsupported_proposal_action",
-            )
-
-        except UpdateProposal.DoesNotExist:
+        if proposal is None:
             return AgentResult(
                 status=AgentStatus.FAILED,
                 reason="proposal_not_found",
+                payload={"message": "The approved proposal could not be found."},
             )
 
-        except PermissionError:
+        if proposal.status != "approved":
             return AgentResult(
                 status=AgentStatus.FAILED,
                 reason="founder_approval_required",
+                payload={"message": "The proposal has not been approved."},
             )
 
-        except ValueError:
+        action = (proposal.payload or {}).get("action")
+
+        try:
+            # Approved configuration updates and rollbacks.
+            if proposal.change_type == "configuration":
+                result = execute_configuration_workflow(str(proposal.pk))
+
+            # Predefined recovery actions (UC10 step 5).
+            elif proposal.change_type == "recovery" and action == "resume_agent":
+                result = resume_approved_agent(str(proposal.pk))
+
+            elif proposal.change_type == "recovery" and action == "retry_request":
+                result = execute_approved_recovery(str(proposal.pk))
+
+            # Founder review, corpus, prompt and manual changes have no executor:
+            # approval is recorded and a person makes the change.
+            else:
+                result = self._record_manual_change(proposal, action)
+
+        except PermissionError as exc:
+            return AgentResult(
+                status=AgentStatus.FAILED,
+                reason="founder_approval_required",
+                payload={"message": str(exc)},
+            )
+
+        except (ValueError, LookupError) as exc:
             return AgentResult(
                 status=AgentStatus.FAILED,
                 reason="invalid_proposal_execution",
+                payload={"message": f"The proposal could not be executed: {exc}"},
             )
+
+        return AgentResult(
+            status=AgentStatus.OK,
+            payload={"result": result},
+        )
+
+    @staticmethod
+    def _record_manual_change(proposal, action) -> dict:
+        if proposal.execution_status == "not_started":
+            record_proposal_execution(
+                "tech_operations",
+                proposal,
+                execution_status="manual_review",
+            )
+
+        return {
+            "proposal_id": str(proposal.pk),
+            "action": action or proposal.change_type,
+            "execution_status": "manual_review",
+            "message": (
+                "Approval recorded. This change is made by a person; "
+                "no automatic action was run."
+            ),
+        }
