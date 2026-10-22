@@ -1,7 +1,16 @@
-"""Controlled recovery execution for Technical Manager."""
+"""Controlled recovery execution for AI Technical Manager."""
 
-from domain.governance.models import UpdateProposal
-from domain.governance.services import record_proposal_execution
+from django.db import transaction
+
+from domain.governance.models import (
+    AgentState,
+    UpdateProposal,
+)
+from domain.governance.services import (
+    set_agent_state,
+    update_incident,
+    record_proposal_execution,
+)
 
 
 def execute_approved_recovery(proposal_id: str) -> dict:
@@ -48,22 +57,6 @@ def execute_approved_recovery(proposal_id: str) -> dict:
             "Actual recovery execution is not implemented."
         ),
     }
-
-
-"""Controlled recovery execution for AI Technical Manager."""
-
-from django.db import transaction
-
-from domain.governance.models import (
-    AgentState,
-    IncidentRecord,
-    UpdateProposal,
-)
-from domain.governance.services import (
-    set_agent_state,
-    update_incident,
-    record_proposal_execution,
-)
 
 
 def resume_approved_agent(proposal_id: str) -> dict:

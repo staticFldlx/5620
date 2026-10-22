@@ -11,7 +11,7 @@ The supplied assignment describes UC03 and UC07 and informs the workflows below.
 
 | Task | Behaviour |
 | --- | --- |
-| `planning.generate_plan` | Consume the confirmed assessment and profile; retrieve courses/materials; ask the shared runtime for a structured, personalised draft; check budget, stage ordering and prerequisites; match a teacher and validate stage lesson times; persist a pending draft and request teacher approval. With an active plan, a new confirmed assessment triggers the existing replan workflow. |
+| `planning.generate_plan` | Consume the confirmed assessment and profile; retrieve courses/materials; ask the shared runtime for a structured, personalised draft; check budget, stage ordering and prerequisites; match a teacher and validate stage lesson times; persist a pending draft and request teacher approval. With an active plan, a new confirmed assessment triggers the existing replan workflow. When another draft is already awaiting teacher review, it completes with the current plan instead of failing the assessment request. |
 | `planning.revise_plan` | Use a manual reason/change request or upstream progress evidence; keep the active version intact while preparing its replacement for review. |
 | `planning.activate_plan` | Verify a resolved, matching teacher approval case, revalidate the persisted curriculum and schedule, activate through the domain service, and book each stage's introductory lesson atomically. A request for changes produces a corrected version and another approval case. |
 | `planning.match_teacher` | Prepare a replacement-teacher plan for review, or escalate to the Founder when no verified candidate is available. |

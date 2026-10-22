@@ -5,6 +5,7 @@ import json
 
 from django.db import transaction
 
+from domain.governance import selectors as governance
 from domain.governance.models import IncidentRecord
 from domain.governance.services import update_incident
 
@@ -29,6 +30,13 @@ def diagnose_and_record(runtime, incident_id: str) -> dict:
         and str(item.get("ref", "")).startswith("agent:")
     ]
 
+    # The operational switch of each affected agent (a paused agent fails every task).
+    agent_status = {}
+
+    for component in (incident.affected_components or [])[:10]:
+        state = governance.agent_state(str(component))
+        agent_status[str(component)] = state.status if state else "healthy"
+
     incident_data = {
         "incident_id": str(incident.pk),
         "subject": incident.subject,
@@ -36,6 +44,7 @@ def diagnose_and_record(runtime, incident_id: str) -> dict:
         "affected_components": incident.affected_components,
         "trigger": incident.trigger,
         "evidence": safe_evidence,
+        "agent_status": agent_status,
     }
 
     diagnosis = diagnose_incident(runtime, incident_data)
@@ -93,9 +102,17 @@ def diagnose_and_record(runtime, incident_id: str) -> dict:
         )
 
         if decision.execution_mode == "approval_required":
+            # resume_agent targets the affected agent; the other actions need no target.
+            agent_id = (
+                str(incident.affected_components[0])
+                if decision.action == "resume_agent" and incident.affected_components
+                else None
+            )
+
             proposal, _ = request_recovery_approval(
                 str(incident.pk),
                 action=decision.action,
+                agent_id=agent_id,
                 rationale=(
                     f"Probable cause: {diagnosis.probable_cause}. "
                     f"Confidence: {diagnosis.confidence:.2f}. "

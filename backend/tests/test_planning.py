@@ -140,6 +140,16 @@ def test_retry_reuses_draft(learner):
     assert LearningPlan.objects.filter(student=learner).count() == 1
 
 
+def test_generate_plan_waits_for_a_draft_already_in_review(learner):
+    """A later assessment (another task) does not fail while the first draft is with the teacher."""
+    first = agent().execute_task(task(learner))
+    later = replace(task(learner), task_id="later-assessment-task")
+    result = PlanningAgent(make_runtime([])).execute_task(later)  # no LLM call
+    assert result.status == AgentStatus.OK
+    assert result.payload["result"]["plan"]["id"] == first.payload["subject_id"]
+    assert LearningPlan.objects.filter(student=learner).count() == 1
+
+
 def test_forged_approval_is_rejected(learner):
     result = agent().execute_task(task(learner))
     resumed = task(learner, "activate_plan", subject_id=result.payload["subject_id"],

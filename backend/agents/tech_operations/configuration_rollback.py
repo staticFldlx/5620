@@ -1,12 +1,12 @@
 
 """Controlled rollback proposals for agent configuration."""
 
-from domain.governance.services import create_proposal
 from django.db import transaction
 
 from domain.governance.models import UpdateProposal
 from domain.governance.selectors import agent_timeout_override
 from domain.governance.services import (
+    create_proposal,
     set_agent_timeout_override,
     record_proposal_execution,
 )
@@ -68,16 +68,6 @@ def create_rollback_proposal(
     )
 
     return rollback
-
-
-from django.db import transaction
-
-from domain.governance.selectors import agent_timeout_override
-from domain.governance.services import (
-    set_agent_timeout_override,
-    record_proposal_execution,
-)
-
 
 
 def execute_approved_rollback(

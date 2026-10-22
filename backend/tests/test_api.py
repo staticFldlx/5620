@@ -202,6 +202,23 @@ def test_review_detail_and_question_answer(emily, ivy):
     assert ivy.get(f"/reviews/{key('RV-021')}").status_code == 403
 
 
+def test_seeded_plan_reviews_can_be_approved(emily, alex):
+    """Seeded review cases point at the planning task that submitted the plan, like real ones."""
+    from domain.learning import selectors as learning
+
+    decided = emily.post(f"/reviews/{key('RV-019-v2')}/decision", {"action": "approve", "note": "More guided practice fits."}).json()
+    assert decided["follow_up"]["status"] == "completed", decided["follow_up"]["error"]
+    ivy = learning.student(key("student-ivy"))
+    assert str(learning.active_plan(ivy).pk) == key("PL-019-v2") and learning.pending_plan(ivy) is None
+
+    decided = emily.post(f"/reviews/{key('RV-021')}/decision", {"action": "approve", "note": "Matches the workplace goal."}).json()
+    assert decided["follow_up"]["status"] == "completed", decided["follow_up"]["error"]
+    assert str(learning.active_plan(learning.student(key("student-sophia"))).pk) == key("PL-021")
+
+    closed = alex.post(f"/cases/{key('ES-12')}/decision", {"action": "widen_match", "note": "Handled outside the platform."}).json()
+    assert closed["status"] == "resolved" and closed["follow_up"] is None
+
+
 # --- teaching records ---------------------------------------------------------------------------------
 def test_observation_availability_and_lesson_records(emily, ivy, monkeypatch):
     # Fixture lessons have fixed dates; freeze the clock before L-021 (2026-10-15) so it is still upcoming.
@@ -258,19 +275,20 @@ def test_cases_agents_and_proposals(alex, emily):
 
     follow_up = correction["follow_up"]
 
-    # The implemented Technical Manager escalates
-    # unstructured correction requests for human review.
-    assert follow_up["status"] == "escalated"
+    # A note no executor can apply becomes a manual proposal awaiting the Founder's approval.
+    assert follow_up["status"] == "pending_review"
     assert follow_up["error"] is None
+    proposal = follow_up["result"]["proposal"]
+    assert proposal["type"] == "manual" and proposal["status"] == "pending"
 
-    review_case = EscalationCase.objects.filter(
+    approval_case = EscalationCase.objects.get(
         task__request_id=follow_up["id"],
         task__task_type="tech_operations.apply_correction",
-        kind=EscalationCase.Kind.REVIEW,
+        kind=EscalationCase.Kind.APPROVAL,
         status=EscalationCase.Status.OPEN,
-    ).first()
+    )
 
-    assert review_case is not None
+    assert approval_case.subject_type == "proposal" and approval_case.subject_id == proposal["id"]
 
     assert alex.post("/agents/unknown/decision", {"action": "pause", "note": "x"}).status_code == 404
 
@@ -279,7 +297,9 @@ def test_cases_agents_and_proposals(alex, emily):
     rejected = alex.post(f"/proposals/{key('UP-07')}/decision", {"action": "reject", "note": "Licences unclear"}).json()
     assert rejected["status"] == "rejected" and rejected["decision"] == "reject: Licences unclear" and rejected["follow_up"] is None
     approved = alex.post(f"/proposals/{key('UP-08')}/decision", {"action": "approve", "note": "Proceed"}).json()
-    assert approved["status"] == "approved" and approved["execution"]["status"] == "not_started"
+    # Founder review has no executor: approval is recorded and a person rebuilds the index.
+    assert approved["status"] == "approved" and approved["execution"]["status"] == "manual_review"
+    assert approved["follow_up"]["status"] == "completed"
     audit = alex.get("/workspace").json()["operations"]["audit"]
     assert {"proposal.approved", "proposal.rejected", "agent.paused", "escalation.resolved"} <= {a["action"] for a in audit}
 

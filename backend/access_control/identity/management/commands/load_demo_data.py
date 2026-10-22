@@ -246,16 +246,22 @@ class Command(BaseCommand):
             AgentState.objects.create(**row)
 
     def tasks(self, rows):
+        # `student` and `subject` link a task to the record it submitted, so a seeded review case
+        # can be resumed like a real one (planning.activate_plan checks the submitting task).
         for row in rows:
             time = when(row["time"])
+            result = {"summary": row["summary"]}
+            if row.get("subject"):
+                result["subject_id"] = str(uid(row["subject"]))
             task = AgentTask.objects.create(
                 pk=uid(row["key"]),
                 task_type=row["task_type"],
                 target_agent=row["task_type"].split(".", 1)[0],
+                student_id=uid(row["student"]) if row.get("student") else None,
                 status=row["status"],
                 confidence=row.get("confidence"),
                 reason=row.get("reason", ""),
-                result={"summary": row["summary"]},
+                result=result,
                 attempts=1,
                 started_at=time,
                 finished_at=time,
@@ -266,6 +272,7 @@ class Command(BaseCommand):
         for row in rows:
             case = EscalationCase.objects.create(
                 pk=uid(row["key"]),
+                task_id=uid(row["task"]) if row.get("task") else None,
                 kind=row["kind"],
                 trigger=row["trigger"],
                 confidence=row.get("confidence"),

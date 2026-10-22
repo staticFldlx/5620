@@ -48,6 +48,9 @@ def create_correction_proposal(
             rationale=correction.reason[:2000],
             status="pending",
             payload=payload,
+            # Display text only: execution replaces before/after with rollback metadata.
+            before=f"Current {correction.setting} of {correction.agent_id}",
+            after=f"{correction.setting} = {correction.new_value}",
             validation=(
                 "Verify the new setting is applied "
                 "and remains within the approved range."
@@ -59,3 +62,30 @@ def create_correction_proposal(
         )
 
         return proposal, True
+
+
+def create_manual_proposal(
+    note: str,
+    *,
+    title: str,
+    before: str,
+    after: str,
+    validation: str,
+    rollback: str,
+) -> tuple[UpdateProposal, bool]:
+    """A correction no executor can apply: approved, then made by a person."""
+
+    proposal = create_proposal(
+        "tech_operations",
+        change_type="manual",
+        title=title[:200],
+        rationale=note[:2000],
+        status="pending",
+        payload={"action": "manual_change"},
+        before=before,
+        after=after,
+        validation=validation,
+        rollback=rollback,
+    )
+
+    return proposal, True

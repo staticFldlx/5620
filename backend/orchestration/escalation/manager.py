@@ -139,7 +139,10 @@ class EscalationManager:
         if case is not None:
             gov.resolve_case(ESCALATION_MANAGER, case, decision=decision, by=by)
         if not approve:
-            return None
+            # Nothing runs; a request paused on this approval (e.g. agent_correction) ends here.
+            if case is None or case.task is None:
+                return None
+            return dispatcher.resume_after_decision(origin=case.task, resume_task_type="", decision=decision, by=by)
         # Execution is tech_operations' job; a proposal created outside a task (seed data) gets its own follow-up.
         return dispatcher.resume_after_decision(
             origin=case.task if case is not None else None,
