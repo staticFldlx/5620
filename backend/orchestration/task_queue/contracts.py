@@ -70,6 +70,14 @@ class StageRecord(Record):
     topics: list[str]
     milestone: str
     status: str
+    target_level: str = ""
+    milestone_status: str = ""
+
+
+class RevisionRequestRecord(Record):
+    reason: str
+    submitted_at: str
+    can_withdraw: bool
 
 
 class PlanRecord(Record):
@@ -83,6 +91,8 @@ class PlanRecord(Record):
     reason: str
     review_id: str
     approved_at: str | None
+    revision_request: RevisionRequestRecord | None = None
+    progress_message: str = ""
 
 
 class LessonRecord(Record):
@@ -181,6 +191,7 @@ class EvidenceRef(Record):
 
 
 class CaseRecord(Record):
+    available_actions: list[str] = []
     id: str
     kind: str
     status: str
@@ -247,6 +258,7 @@ class OperationsRecord(Record):
 
 
 class WorkspaceRecord(Record):
+    assessment_sessions: list[AssessmentSessionRecord] | None = None
     user: UserRecord
     students: dict[str, StudentRecord] | None = None
     lessons: list[LessonRecord] | None = None
@@ -258,6 +270,7 @@ class WorkspaceRecord(Record):
 
 
 class AssessmentSessionRecord(Record):
+    follow_up: EnvelopeRecord | None = None
     id: str
     student_id: str
     kind: str
@@ -447,11 +460,6 @@ class RescheduleInput(LessonRefInput):
     slot: str | None = None  # frontend: local "YYYY-MM-DDTHH:mm"
     requested_time: str | None = None  # contract.json: ISO with offset
 
-    @model_validator(mode="after")
-    def needs_time(self):
-        if not (self.slot or self.requested_time):
-            raise ValueError("slot or requested_time is required")
-        return self
 
 
 class ConfirmSlotInput(Record):
@@ -473,6 +481,7 @@ class GenerateMaterialInput(LessonRefInput):
 class StartAssessmentInput(Record):
     kind: str
     focus: str = ""
+    milestone_stage_id: str | None = None
 
 
 class ReplyInput(Record):

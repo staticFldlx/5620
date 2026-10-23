@@ -52,6 +52,14 @@ def proficiency(pk: Any) -> ProficiencyProfile | None:
     return ProficiencyProfile.objects.select_related("session").filter(pk=pk).first()
 
 
+def ongoing_assessments(student: Any) -> QuerySet[AssessmentSession]:
+    return AssessmentSession.objects.filter(student=student, status="in_progress").order_by("-created_at")
+
+
+def available_teachers():
+    return get_user_model().objects.filter(groups__name=Role.TEACHER, is_active=True).select_related("teacher_profile").prefetch_related("availability_slots").order_by("pk").distinct()
+
+
 def assessment_session(pk: Any) -> AssessmentSession | None:
     return AssessmentSession.objects.filter(pk=pk).select_related("student").first()
 
@@ -61,7 +69,14 @@ def active_plan(student: Any) -> LearningPlan | None:
 
 
 def pending_plan(student: Any) -> LearningPlan | None:
-    return LearningPlan.objects.filter(student=student, status__in=PENDING_PLAN_STATUSES).select_related("teacher").last()
+    """Return an unfinished plan newer than the active version, preserving older history."""
+    candidates = LearningPlan.objects.filter(student=student, status__in=PENDING_PLAN_STATUSES)
+    current = displayed_plan(student)
+    if current is not None:
+        # Corrected predecessors retain changes_requested for the audit trail.
+        # Once their replacement is active, they no longer block a new revision.
+        candidates = candidates.filter(version__gt=current.version)
+    return candidates.select_related("teacher").last()
 
 
 def plan(pk: Any) -> LearningPlan | None:
@@ -308,3 +323,36 @@ def student_archive_snapshot(student_id: str) -> dict:
         "has_pending_assessments": has_pending_assessments,
         "has_unresolved_reviews": has_unresolved_reviews,
     }
+
+
+CEFR_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
+
+
+def displayed_plan(student):
+    return active_plan(student) or LearningPlan.objects.filter(student=student, status="completed").order_by("-version").first()
+
+
+def milestone_stage(stage_id, student):
+    stage = PlanStage.objects.select_related("plan", "plan__based_on").filter(pk=stage_id, plan__student=student, plan__status="active").first()
+    return stage if stage and stage.stage_number == stage.plan.stage_index + 1 and stage.status != "completed" else None
+
+
+def stage_target_level(stage):
+    import re
+    explicit = re.findall(r"\b(?:A[12]|B[12]|C[12])\b", stage.milestone.upper())
+    levels = explicit or [c.level.upper() for c in stage.courses.all() if c.level.upper() in CEFR_LEVELS]
+    baseline = stage.plan.based_on.overall_level if stage.plan.based_on else ""
+    return max(levels, key=CEFR_LEVELS.index) if levels else baseline if baseline in CEFR_LEVELS else "B1"
+
+
+def stage_lessons_attended(stage):
+    lessons = stage.lessons.exclude(status="cancelled")
+    return lessons.exists() and not lessons.exclude(status="completed", attendance="attended").exists()
+
+
+def milestone_status(stage):
+    if stage.status == "completed":
+        return "completed"
+    if stage.milestone_request_id:
+        return stage.milestone_request.status
+    return "ready" if stage_lessons_attended(stage) else "lessons_pending"

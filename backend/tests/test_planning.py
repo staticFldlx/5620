@@ -113,6 +113,7 @@ def test_pending_assessment_cannot_be_used(learner):
 
 def test_no_teacher_routes_to_founder(learner, settings):
     settings.INTAKE_TEACHER_EMAIL = "missing@example.com"
+    User.objects.filter(groups__name="teacher").update(is_active=False)
     result = agent().execute_task(task(learner))
     assert result.reason == "teacher_unavailable"
     assert result.payload["route_to"] == "founder"
@@ -310,11 +311,13 @@ def test_alternative_confirmation_continues_generation_and_review(learner, real_
 
 def test_founder_case_continues_after_teacher_becomes_available(learner, real_runtime, settings):
     settings.INTAKE_TEACHER_EMAIL = "missing@example.com"
+    User.objects.filter(groups__name="teacher").update(is_active=False)
     request = review_request(learner)
     case = EscalationCase.objects.get(task__request=request)
     assert case.subject_type == "business"
     assert str(case.assignee_id) == key("founder-alex")
     settings.INTAKE_TEACHER_EMAIL = "emily.walker@example.com"
+    User.objects.filter(pk=key("teacher-emily")).update(is_active=True)
     escalation_manager.decide_business_case(case, action="request_teacher", note="A suitable intake teacher is now available.", by=case.assignee)
     request.refresh_from_db()
     assert request.status == "awaiting_approval", request.error
@@ -431,13 +434,13 @@ def test_matching_skips_unavailable_current_teacher_and_tries_intake(learner):
     assert str(learning.pending_plan(learner).teacher_id) == key("teacher-emily")
 
 
-def test_extra_qualified_teacher_is_not_visible_without_shared_catalogue(learner, settings):
-    # Reproduction of a shared read-interface gap, not a claim of complete matching.
-    teacher_candidate("qualified-outside-selectors")
+def test_extra_qualified_teacher_is_discovered_in_shared_catalogue(learner, settings):
+    User.objects.filter(pk=key("teacher-emily")).update(is_active=False)
+    candidate = teacher_candidate("qualified-outside-selectors")
     settings.INTAKE_TEACHER_EMAIL = "missing@example.com"
     result = agent().execute_task(task(learner))
-    assert result.reason == "teacher_unavailable"
-    assert result.payload["route_to"] == "founder"
+    assert result.status == AgentStatus.AWAITING_APPROVAL
+    assert learning.pending_plan(learner).teacher_id == candidate.pk
 
 
 def test_replacement_without_existing_bookings_activates_new_teacher(learner, real_runtime):
@@ -487,13 +490,17 @@ def test_replacement_failure_rolls_back_active_version_and_new_bookings(learner,
     assert not learning.lessons_for_student(learner).exists()
 
 
-def test_founder_widen_match_changes_subject_criteria(learner, real_runtime):
+def test_founder_widen_match_changes_subject_criteria(learner, real_runtime, alex):
     services.update_profile("coordinator", learner.learning_profile, learning_goal="Medical communication",
         structured_objective={"summary": "Medical communication", "focus_skills": ["Medical"]})
     request = review_request(learner)
     case = EscalationCase.objects.get(task__request=request)
     assert case.subject_type == "business"
-    escalation_manager.decide_business_case(case, action="widen_match", note="Allow the intake teacher to review this broader goal.", by=case.assignee)
+    detail = alex.get(f"/cases/{case.pk}")
+    assert "widen_match" in detail.json()["available_actions"]
+    response = alex.post(f"/cases/{case.pk}/decision", {"action": "widen_match", "note": "Allow the intake teacher to review this broader goal."})
+    assert response.status_code == 200
+    assert response.json()["follow_up"]["status"] == "pending_review"
     request.refresh_from_db()
     assert request.status == "awaiting_approval", request.error
     assert "broader goal" in learning.pending_plan(learner).rationale
@@ -501,6 +508,7 @@ def test_founder_widen_match_changes_subject_criteria(learner, real_runtime):
 
 def test_founder_request_teacher_without_updated_data_does_not_loop(learner, real_runtime, settings):
     settings.INTAKE_TEACHER_EMAIL = "missing@example.com"
+    User.objects.filter(groups__name="teacher").update(is_active=False)
     request = review_request(learner)
     case = EscalationCase.objects.get(task__request=request)
     escalation_manager.decide_business_case(case, action="request_teacher", note="Please recruit a teacher.", by=case.assignee)
@@ -640,7 +648,7 @@ def test_automatic_replan_uses_shared_dispatcher_and_keeps_assessment_contract(l
     teacher = User.objects.get(pk=key("teacher-emily"))
     old = active_for(learner, teacher)
     session = services.create_assessment_session("assessment", student=learner, type="milestone", status="completed")
-    new_record = services.record_proficiency("assessment", session=session, overall_level="B2", weak_areas=["Writing"],
+    new_record = services.record_proficiency("assessment", session=session, overall_level="B1", weak_areas=["Writing"],
         status="confirmed", confidence=0.9, gap_to_goal="Writing still needs support")
     request = assessment_to_planning(learner, new_record)
     assert request.status == "awaiting_approval", request.error
@@ -699,3 +707,297 @@ def test_changed_preferences_do_not_silently_reuse_unconfirmed_draft_slots(learn
     result = agent().execute_task(resumed)
     assert result.status == AgentStatus.NEEDS_INPUT
     assert learning.active_plan(learner) is None
+
+
+@pytest.mark.parametrize("status", ["pending_review", "changes_requested"])
+def test_pending_selector_excludes_versions_replaced_by_active_plan(learner, status):
+    teacher = User.objects.get(pk=key("teacher-emily"))
+    old = services.create_plan("planning", student=learner, teacher=teacher, stages=[], version=1,
+        status=status, weekly_hours=4, rationale="Historical draft")
+    current = services.create_plan("planning", student=learner, teacher=teacher, stages=[], version=2,
+        previous_version=old, weekly_hours=4, rationale="Approved replacement")
+    services.activate_plan("planning", current, approved_by=teacher)
+    assert learning.pending_plan(learner) is None
+    old.refresh_from_db()
+    assert old.status == status  # Selecting the current draft must not rewrite history.
+    assert learning.plan(old.pk) is not None
+
+
+@pytest.mark.parametrize("status", ["pending_review", "changes_requested"])
+def test_pending_selector_keeps_newer_drafts_and_blocks_duplicate_revision(learner, status):
+    from domain.common import DomainError
+    teacher = User.objects.get(pk=key("teacher-emily"))
+    current = active_for(learner, teacher)
+    newer = services.create_plan("planning", student=learner, teacher=teacher, stages=[], version=current.version + 1,
+        previous_version=current, status=status, weekly_hours=4, rationale="Unfinished revision")
+    assert learning.pending_plan(learner).pk == newer.pk
+    with pytest.raises(DomainError) as error:
+        dispatcher.submit("revise_plan", actor=learner, actor_role="student", student=learner,
+            input={"reason": "Duplicate revision"})
+    assert error.value.code == "plan_review_pending"
+    assert learning.active_plan(learner).pk == current.pk
+
+
+@pytest.mark.parametrize("status", ["pending_review", "changes_requested"])
+def test_pending_selector_keeps_first_plan_without_active_version(learner, status):
+    initial = services.create_plan("planning", student=learner, teacher=User.objects.get(pk=key("teacher-emily")),
+        stages=[], version=1, status=status, weekly_hours=4, rationale="First plan")
+    assert learning.active_plan(learner) is None
+    assert learning.pending_plan(learner).pk == initial.pk
+
+
+@pytest.mark.parametrize("mode", ["inline", "worker"])
+def test_corrected_plan_activation_allows_next_revision_through_api(learner, real_runtime, emily, settings, mode):
+    from django.test import Client
+    from domain.governance.models import ServiceRequest
+    from tests.conftest import Api
+    settings.AGENT_TASK_EXECUTION = mode
+    learner.set_password("demo1238")
+    learner.save(update_fields=["password"])
+    student_api = Api(Client()).login(learner.email)
+
+    def decide(case, action, note):
+        response = emily.post(f"/reviews/{case.pk}/decision", {"action": action, "note": note})
+        assert response.status_code == 200, response.content
+        follow_up = response.json().get("follow_up")
+        if follow_up and follow_up["status"] in ("queued", "running"):
+            dispatcher.drain(ServiceRequest.objects.get(pk=follow_up["id"]))
+        return response
+
+    initial_request = review_request(learner)
+    original_case = EscalationCase.objects.get(task__request=initial_request)
+    decide(original_case, "request_changes", "Add clearer writing practice.")
+    corrected = learning.pending_plan(learner)
+    assert corrected.version == 2
+    corrected_case = EscalationCase.objects.get(student=learner, subject_id=str(corrected.pk), status="open")
+    decide(corrected_case, "approve", "The corrected plan is approved.")
+    assert learning.active_plan(learner).pk == corrected.pk
+
+    before = student_api.get("/workspace").json()["students"][str(learner.pk)]
+    assert before["plan"]["version"] == 2
+    assert before["pending_plan"] is None
+    assert not EscalationCase.objects.filter(student=learner, status="open").exists()
+
+    response = student_api.post("/requests", {"type": "revise_plan", "input": {"reason": "More guided reading within my weekly budget."}})
+    assert response.status_code == 200, response.content
+    assert response.json()["status"] == ("queued" if mode == "worker" else "pending_review")
+    revision_request = ServiceRequest.objects.get(pk=response.json()["id"])
+    dispatcher.drain(revision_request)
+    revision_request.refresh_from_db()
+    assert revision_request.status == "awaiting_approval", revision_request.error
+    newer = learning.pending_plan(learner)
+    assert newer.version == 3 and newer.previous_version_id == corrected.pk
+    assert learning.active_plan(learner).pk == corrected.pk
+    pending_workspace = student_api.get("/workspace").json()["students"][str(learner.pk)]
+    assert pending_workspace["pending_plan"]["version"] == 3
+
+    repeated = student_api.post("/requests", {"type": "revise_plan", "input": {"reason": "Another revision too soon"}})
+    assert repeated.status_code == 409
+    assert repeated.json()["error"]["code"] == "plan_review_pending"
+    assert LearningPlan.objects.filter(student=learner).count() == 3
+
+    decide(EscalationCase.objects.get(task__request=revision_request), "approve", "Approve version three.")
+    assert learning.active_plan(learner).pk == newer.pk
+    assert learning.pending_plan(learner) is None
+    corrected.refresh_from_db()
+    assert corrected.status == "superseded"
+    historical = LearningPlan.objects.get(student=learner, version=1)
+    assert historical.status == "changes_requested"
+    original_case.refresh_from_db()
+    assert original_case.status == "resolved" and original_case.decision["action"] == "request_changes"
+
+
+@pytest.fixture
+def student_revision(learner, real_runtime):
+    from django.test import Client
+    from tests.conftest import Api
+    learner.set_password("demo1238")
+    learner.save(update_fields=["password"])
+    api = Api(Client()).login(learner.email)
+    initial = review_request(learner)
+    approve(EscalationCase.objects.get(task__request=initial))
+    current = learning.active_plan(learner)
+    request = dispatcher.submit("revise_plan", actor=learner, actor_role="student", student=learner,
+        input={"reason": "More reading practice, keeping my existing weekly hours."})
+    plan = learning.pending_plan(learner)
+    case = EscalationCase.objects.get(subject_id=str(plan.pk), status="open")
+    return api, current, plan, case, request
+
+
+@pytest.mark.parametrize("mode", ["inline", "worker"])
+def test_student_withdraws_revision_then_submits_again(student_revision, learner, emily, settings, mode):
+    from domain.common import DomainError
+    api, current, plan, case, request = student_revision
+    settings.AGENT_TASK_EXECUTION = mode
+    record = api.get("/workspace").json()["students"][str(learner.pk)]
+    details = record["pending_plan"]["revision_request"]
+    assert details["reason"] == request.input["reason"]
+    assert details["can_withdraw"] and details["submitted_at"]
+    assert api.post("/requests", {"type": "revise_plan", "input": {"reason": "Duplicate"}}).status_code == 409
+    lessons_before = list(learning.lessons_for_student(learner).values("id", "status", "starts_at", "ends_at"))
+    response = api.post(f"/plans/{plan.pk}/withdraw")
+    assert list(learning.lessons_for_student(learner).values("id", "status", "starts_at", "ends_at")) == lessons_before
+    assert response.status_code == 200, response.content
+    assert response.json() == {"withdrawn": True}
+    assert learning.active_plan(learner).pk == current.pk
+    assert learning.pending_plan(learner) is None
+    plan.refresh_from_db()
+    request.refresh_from_db()
+    assert plan.status == "withdrawn"
+    assert request.status == "completed" and request.phase == "withdrawn"
+    assert request.remaining_steps == []
+    # An already-open teacher tab holds this stale model instance.
+    with pytest.raises(DomainError) as error:
+        escalation_manager.decide_review(case, action="approve", note="Stale approval", by=case.assignee)
+    assert error.value.code == "case_not_open"
+    assert emily.post(f"/reviews/{case.pk}/decision", {"action": "approve", "note": "Stale approval"}).status_code == 409
+    assert api.post(f"/plans/{plan.pk}/withdraw").status_code == 409
+    assert learning.history(learner, kinds=("plan_revision_withdrawn",)).count() == 1
+    next_request = dispatcher.submit("revise_plan", actor=learner, actor_role="student", student=learner,
+        input={"reason": "A revised request after withdrawal"})
+    dispatcher.drain(next_request)
+    assert learning.pending_plan(learner).version == plan.version + 1
+    assert learning.active_plan(learner).pk == current.pk
+
+
+def test_withdrawal_cannot_touch_other_student_or_approved_plan(student_revision, learner, ivy, emily):
+    api, current, plan, case, request = student_revision
+    assert ivy.post(f"/plans/{plan.pk}/withdraw").status_code == 403
+    assert emily.post(f"/plans/{plan.pk}/withdraw").status_code == 403
+    assert api.post(f"/plans/{current.pk}/withdraw").status_code == 409
+    approve(case)
+    assert api.post(f"/plans/{plan.pk}/withdraw").status_code == 409
+    assert learning.active_plan(learner).pk == plan.pk
+
+
+def test_corrected_student_revision_can_be_withdrawn_without_old_draft_reappearing(student_revision, learner):
+    api, current, plan, case, request = student_revision
+    escalation_manager.decide_review(case, action="request_changes", note="Clarify the milestones", by=case.assignee)
+    corrected = learning.pending_plan(learner)
+    assert corrected.version == plan.version + 1
+    details = api.get("/workspace").json()["students"][str(learner.pk)]["pending_plan"]["revision_request"]
+    assert details["can_withdraw"] and details["reason"] == request.input["reason"]
+    assert api.post(f"/plans/{corrected.pk}/withdraw").status_code == 200
+    assert learning.pending_plan(learner) is None
+    assert learning.active_plan(learner).pk == current.pk
+    plan.refresh_from_db()
+    assert plan.status == "withdrawn"
+    case.refresh_from_db()
+    assert case.decision["action"] == "request_changes"  # decision history remains intact
+
+
+def test_initial_plan_cannot_be_withdrawn(learner, real_runtime):
+    from orchestration.escalation.plan_revisions import withdraw_revision
+    from domain.common import DomainError
+    review_request(learner)
+    plan = learning.pending_plan(learner)
+    with pytest.raises(DomainError) as error:
+        withdraw_revision(plan, by=learner)
+    assert error.value.code == "revision_not_withdrawable"
+    assert learning.pending_plan(learner).pk == plan.pk
+
+
+def test_withdrawal_failure_rolls_back_every_change(student_revision, learner, monkeypatch):
+    from orchestration.escalation.plan_revisions import withdraw_revision
+    api, current, plan, case, request = student_revision
+    def fail(*args, **kwargs):
+        raise RuntimeError("Simulated history failure")
+    monkeypatch.setattr(services, "append_history", fail)
+    with pytest.raises(RuntimeError):
+        withdraw_revision(plan, by=learner)
+    case.refresh_from_db()
+    plan.refresh_from_db()
+    request.refresh_from_db()
+    assert case.status == "open" and case.decision is None
+    assert plan.status == "pending_review" and request.status == "awaiting_approval"
+    assert learning.active_plan(learner).pk == current.pk
+
+
+def test_student_cannot_withdraw_teacher_initiated_revision(student_revision, learner):
+    api, current, plan, case, request = student_revision
+    assert api.post(f"/plans/{plan.pk}/withdraw").status_code == 200
+    teacher = current.teacher
+    dispatcher.submit("revise_plan", actor=teacher, actor_role="teacher", student=learner,
+        input={"reason": "Teacher initiated improvement"})
+    proposed = learning.pending_plan(learner)
+    details = api.get("/workspace").json()["students"][str(learner.pk)]["pending_plan"]["revision_request"]
+    assert not details["can_withdraw"]
+    assert api.post(f"/plans/{proposed.pk}/withdraw").status_code == 409
+    assert learning.pending_plan(learner).pk == proposed.pk
+
+
+@pytest.fixture
+def scheduled_learner(learner, real_runtime):
+    request = review_request(learner)
+    approve(EscalationCase.objects.get(task__request=request))
+    return learning.lessons_for_student(learner).first()
+
+
+@pytest.mark.parametrize("mode", ["inline", "worker"])
+def test_empty_time_finds_slots_and_confirm_uses_selected_offer(learner, scheduled_learner, settings, mode):
+    settings.AGENT_TASK_EXECUTION = mode
+    lesson = scheduled_learner
+    before = lesson.starts_at
+    request = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk)})
+    dispatcher.drain(request); request.refresh_from_db()
+    assert request.status == "awaiting_input", request.error
+    assert request.result["requested_available"] is False
+    assert request.result["teacher_availability"]
+    slots = request.result["slots"]
+    assert slots and all(s["starts_at"] != before.isoformat() for s in slots)
+    lesson.refresh_from_db(); assert lesson.starts_at == before
+    selected = slots[-1]
+    confirmation = dispatcher.submit("confirm_slot", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk), "slot_request_id": str(request.pk), "slot_id": selected["id"]})
+    dispatcher.drain(confirmation); confirmation.refresh_from_db()
+    assert confirmation.status == "completed", confirmation.error
+    from datetime import datetime
+    lesson.refresh_from_db()
+    assert lesson.starts_at == datetime.fromisoformat(selected["starts_at"])
+
+
+def test_unavailable_time_returns_reason_and_options_and_valid_time_is_accepted(learner, scheduled_learner):
+    from datetime import datetime
+    lesson = scheduled_learner
+    from zoneinfo import ZoneInfo
+    invalid = (timezone.now().astimezone(ZoneInfo("Australia/Sydney")) + timedelta(days=2)).replace(hour=0).isoformat()
+    # Invalid ISO input also produces a useful choice instead of crashing.
+    for value in [invalid, "not-a-date"]:
+        request = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
+            input={"lesson_id": str(lesson.pk), "slot": value})
+        assert request.status == "awaiting_input", request.error
+        assert request.result["requested_available"] is False and request.result["slots"]
+        assert request.result["message"]
+    offered = request.result["slots"][0]["starts_at"]
+    checked = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk), "slot": offered})
+    assert checked.result["requested_available"] is True
+    assert len(checked.result["slots"]) == 1
+    assert datetime.fromisoformat(checked.result["proposed_slot"]) == datetime.fromisoformat(offered)
+
+
+def test_no_available_times_is_explained_without_moving_lesson(learner, scheduled_learner):
+    from domain.learning.models import AvailabilitySlot
+    lesson = scheduled_learner; before = lesson.starts_at
+    AvailabilitySlot.objects.filter(teacher=lesson.teacher).delete()
+    request = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk)})
+    assert request.status == "awaiting_input", request.error
+    assert request.result["slots"] == []
+    assert "Contact your teacher" in request.result["message"]
+    lesson.refresh_from_db(); assert lesson.starts_at == before
+
+
+def test_final_confirmation_rechecks_new_booking_conflict(learner, scheduled_learner):
+    from datetime import datetime
+    lesson = scheduled_learner; before = lesson.starts_at
+    request = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk)})
+    selected = next(s for s in request.result["slots"] if datetime.fromisoformat(s["starts_at"]) >= lesson.ends_at)
+    services.book_lesson("planning", teacher=lesson.teacher, student=learner, title="New booking",
+        starts_at=datetime.fromisoformat(selected["starts_at"]), ends_at=datetime.fromisoformat(selected["ends_at"]), status="confirmed")
+    confirmation = dispatcher.submit("confirm_slot", actor=learner, actor_role="student", student=learner,
+        input={"lesson_id": str(lesson.pk), "slot_request_id": str(request.pk), "slot_id": selected["id"]})
+    assert confirmation.status == "failed" and confirmation.error["code"] == "slot_conflict"
+    lesson.refresh_from_db(); assert lesson.starts_at == before

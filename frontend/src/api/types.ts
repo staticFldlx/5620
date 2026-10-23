@@ -15,6 +15,8 @@ export type Assessment = {
   requested_focus?: string | null
 }
 export type Stage = {
+  target_level?: string
+  milestone_status?: string
   title: string
   course_ref: string
   start_week: number
@@ -24,6 +26,7 @@ export type Stage = {
   status: string
 }
 export type Plan = {
+  progress_message?: string
   id: string
   version: number
   status: string
@@ -34,6 +37,11 @@ export type Plan = {
   reason: string
   review_id: string
   approved_at: string | null
+  revision_request?: {
+    reason: string
+    submitted_at: string
+    can_withdraw: boolean
+  } | null
 }
 export type Profile = {
   goal_text: string
@@ -52,7 +60,7 @@ export type StudentRecord = {
   assessments: Assessment[]
   plan: Plan | null
   pending_plan: Plan | null
-  material_records: string[]
+  material_records: { material_id: string; completed_at: string }[]
   observation: string
 }
 export type Lesson = {
@@ -122,6 +130,7 @@ export type Log = {
   escalated: boolean
 }
 export type Case = {
+  available_actions?: string[]
   id: string
   kind: string
   status: string
@@ -170,6 +179,7 @@ export type Operations = {
   }[]
 }
 export type Workspace = {
+  assessment_sessions?: AssessmentSession[]
   user: User
   students?: Record<string, StudentRecord>
   lessons?: Lesson[]
@@ -196,9 +206,36 @@ export type RequestType =
   | "generate_material"
 export type RequestEnvelope = {
   id: string
-  type: RequestType
+  type: string
   status: string
   phase: string
   result: Record<string, unknown>
-  error?: string
+  error?: { code: string; message: string } | null
 }
+
+export type AssessmentSession = {
+  id: string
+  student_id: string
+  kind: string
+  focus: string
+  current_item: string
+  current_item_id: string | null
+  answered: number
+  answered_items: string[]
+  max_items: number
+  status: string
+  result?: Assessment | null
+  follow_up?: RequestEnvelope | null
+}
+export type ReviewDetail = {
+  review: Review
+  subject: unknown
+  evidence: string
+  draft_answer?: string | null
+  draft_source_refs?: {
+    material_id?: string
+    title?: string
+    locator?: string
+  }[]
+}
+export type DecisionResult = { follow_up?: RequestEnvelope | null }

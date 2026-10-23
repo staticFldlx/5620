@@ -285,3 +285,33 @@ GitHub Actions（`.github/workflows/ci.yml`）在每次 push 和 PR 时运行迁
 
 - **Cloud Run**：可以用 `gcloud run deploy --source backend` 部署（buildpacks）。上线时设置 `DJANGO_DEBUG=false`、`DJANGO_SECRET_KEY`、`DJANGO_ALLOWED_HOSTS`、`CORS_ALLOWED_ORIGINS`。
 - **SQLite 在 Cloud Run 上不持久**：实例重启后数据回到演示数据，多实例之间也不共享，所以实例数上限要设为 1；需要持久化时设置 `DATABASE_URL` 使用 PostgreSQL。
+
+
+### 学生撤回计划修改申请
+
+`GET /workspace` 的 `pending_plan.revision_request` 包含学生提交的 `reason`、
+`submitted_at` 和 `can_withdraw`。学生页面展示原始要求及拟议计划，待审期间隐藏重复提交表单。
+`POST /api/v1/plans/{id}/withdraw` 仅允许学生撤回自己的待审修改申请；初始计划、教师发起的申请和已决定的版本不可撤回。
+撤回保留当前生效计划、已有课程和历史记录，并关闭该申请的审核流程。老师打开旧审核页面也无法再批准。
+之后可提交新的版本；版本号继续递增，不复用已撤回的版本号。无需数据库迁移。
+
+
+### 课程改期时间检查
+
+学生端 `Check slot` 可留空，查询未来 28 天内最多 5 个推荐时段；输入时间时，检查该时间的完整课时是否落在老师每周可用窗口内且没有师生课程冲突。
+返回 `requested_available`、`slots`、`message`、`teacher_availability` 和 `teacher_timezone`。不可用时保留原因并提供替代选项，无选项时提示联系老师。
+学生选定返回的时段后，使用 `confirm_slot` 的 `slot_request_id` 和 `slot_id` 确认，后端再次检查冲突。编辑输入或切换课程后前端清除旧检查结果。
+
+### UC05：阶段进度与自动里程碑测评
+
+新增迁移 `learning.0002` 仅增加测评与阶段的关联、测评开始时的等级/目标快照及阶段发布请求关联，不清空或回填原有业务记录。
+
+- 老师保存课程记录后，若当前阶段所有未取消课程均已完成且出席为 `attended`，自动发布一次关联该阶段的里程碑测评。没有课程、缺席、仍有未完成课程或非当前阶段都不会触发。
+- 同一阶段复用正在进行/等待审核的测评，重复保存反馈不会生成重复测评。教师要求重测后，由学生再次点击开始测评发起新一轮。
+- 仅已确认的结果用于进度判断。等级较测评开始时下降至少一个 CEFR 等级，或阶段结业测评未达到阶段目标，会提议修改计划；原计划在新版本批准前保持生效。
+- 阶段目标优先读取 milestone 中明确的 CEFR 等级；没有时采用关联课程的最高等级，再回退到计划依据的已确认等级。该目标在发布测评时保存，并在学生计划页展示。没有有效等级信息时默认 B1。
+- 达标且没有等级退步：阶段标为 `completed`、下一阶段标为 `current`，计划版本不变；最后一个阶段达标后计划标为 `completed`，学生工作区仍可查看完成记录。
+- 普通阶段中途/教师定向测评可以判断等级退步，但不代替关联当前阶段的结业测评。旧版本或已完成阶段的迟到结果不会推进当前阶段。
+- 进度决定写入 `progress_decision` 学习历史。自动请求与原有测评、低置信审核、计划审批共用调度流程，支持 inline 和 worker。
+
+回归测试：`pytest tests/test_learning_progress.py tests/test_planning.py`。测试使用独立测试数据库和离线模型。

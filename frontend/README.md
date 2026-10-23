@@ -93,3 +93,71 @@ GitHub Actions（`.github/workflows/ci.yml`）在每次 push 和 PR 时运行 `n
 | `lingopath-theme`、`lingopath-motion` | 日夜主题和动效开关；系统设置了“减少动态效果”时会关闭动画 |
 
 连接真实后端时，演示数据保存在后端数据库，用后端的 `python manage.py load_demo_data --reset` 重置。
+
+## 已知问题修复与回归测试
+
+2026-10-23 已修复测评状态、定向测评恢复、Founder 后续执行提示/暂停恢复/放宽匹配、教师私有草稿和显示问题。详见 [修复内容与验证方法](docs/known-issues-fixes.md)。`npm test` 运行请求状态单元测试；`npm run test:e2e` 使用临时后端验证真实页面流程，`AGENT_TASK_EXECUTION=worker npm run test:e2e` 验证异步模式；`npm run test:e2e:mock` 检查离线演示兼容性。
+
+## 新增：教师调整计划、纠正测评、阶段推进
+
+以下操作使用真实后端（`VITE_USE_MOCK_API=false`）。先完成后端迁移，再刷新前端。
+
+### 1. 老师主动修改学习计划（UC07）
+
+1. 老师登录，点击 **My students**，选择目标学生。
+2. 在 **Request a plan revision** 的 **Requested plan changes** 填写修改要求与理由。
+3. 点击 **Submit plan revision**；当前版本继续生效，新版本显示等待审核，不能重复提交。
+4. 点击 **Open reviews**，选择该学生的待审 plan，核对新内容并填写审核备注。
+5. 点击 **Approve & activate**。学生刷新 **My learning plan**，应看到新版本；未批准前看到原版本和待审修改。
+
+### 2. 老师纠正待审核测评等级（UC02、UC05）
+
+1. 老师点击 **Reviews & questions** → **assessment**，选择状态为 pending 的测评。
+2. 在 **Confirmed level (CEFR)** 选择 A1–C2；保留默认选项则不改 AI 等级。
+3. 在 **Decision note and supporting evidence** 写明依据。
+4. 点击 **Confirm corrected result**（保持原等级时是 **Confirm result**）。
+5. 学生在 **Assessments** 点击 **Refresh result** 或刷新页面，记录应显示 confirmed 及老师确认的等级；首页 Current level 同步更新。
+
+仅待审核记录能在此纠正；已决定的旧记录不会重新开放审核。定向测评入口仍在 **My students → AI progress support → Directed assessment**。
+
+### 3. 自动发布里程碑测评（UC05）
+
+1. 学生在 **My learning plan** 查看 `current` 阶段及 **Milestone target**。
+2. 老师进入 **Lessons & availability**，选择这个学生、这个阶段的课程。
+3. 上课时间已到后，选择 **Attendance → Attended**，填写 **Lesson observation**，点击 **Save lesson record**。
+4. 当前阶段所有未取消课程都按上述记录出席后，系统自动准备一份 milestone assessment。
+5. 学生刷新 **Assessments**，点击 **Continue milestone assessment**；无需老师再点 Request assessment。
+6. 重复保存同一节课反馈，不应出现重复测评。若 worker 模式，准备需要等待 worker 执行后刷新。
+
+未来课程不能提前记出席；缺席不会算通过。已有历史课程不会因为升级代码而自动改写或发布测评；如当前阶段已经上完，可重新保存该阶段最后一节课的记录以触发检查。
+
+### 4. 阶段推进和最终完成（UC05）
+
+1. 完成第 3 项发布的测评，逐题点 **Submit answer**。
+2. 若显示 **Pending teacher review**，先由老师按第 2 项确认等级；此时学生阶段应保持原样。
+3. 已确认等级达到 **Milestone target** 且不低于测评开始时等级，学生刷新 **My learning plan**：当前阶段变 completed、下一阶段变 current、版本号不变。
+4. 对下一阶段重复“完成课程 → 里程碑测评 → 确认结果”。
+5. 最后一个阶段通过后，页面显示 **Your learning plan is complete**，所有阶段 completed，首页 Learning stage 显示 Completed，原计划与结果仍可查看。
+
+### 5. 正常进度保留计划，偏离时申请修改（UC05）
+
+- **正常路径**：按第 4 项完成达标测评；确认计划版本不变，没有新 pending plan。
+- **偏离路径**：选另一个有 active 计划的测试学生，完成其阶段测评。若正式结果低于开始时等级或阶段目标，应保留原计划/阶段，同时生成一个待审核的新版本。
+- 示例：开始等级 B2、阶段目标 B2，正式确认 B2 则推进；正式确认 B1 则提议修改，等老师在 **Reviews & questions** 批准后才启用。仅在测试账号使用人为构造的等级；真实学生按证据确认。
+- 已有待审版本时不会再堆叠新版本；老师也可以主动发起第 1 项的修改。
+
+### 自动化复验
+
+在 frontend 目录执行：
+
+```sh
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run test:e2e
+npx playwright test --config playwright.progress.config.ts
+AGENT_TASK_EXECUTION=worker npx playwright test --config playwright.progress.config.ts
+```
+
+新增浏览器测试使用 8101/5274 端口、临时数据库、离线模型及仅存在于临时库的测试账号，退出后清理，不改变日常开发数据库。测试脚本内的 `progress@test.example` 等账号不是正常 demo 账号。

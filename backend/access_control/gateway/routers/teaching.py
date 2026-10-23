@@ -43,6 +43,8 @@ def save_lesson(request, lesson_id: str, body: LessonPatchIn):
     lesson = lookups.get_or_404(learning.lesson, lesson_id, "Lesson")
     lookups.require_owner(lesson.teacher_id == user.pk, "You do not teach this lesson.")
     learning_services.record_lesson_outcome(user, lesson, attendance=body.attendance, feedback=body.feedback, teacher=user)
+    from orchestration.milestones import publish_ready_milestone
+    publish_ready_milestone(lesson.student, user)
     return lesson_view(learning.lesson(lesson.pk))
 
 

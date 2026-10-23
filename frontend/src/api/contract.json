@@ -1,10 +1,10 @@
 {
   "version": "stage1-core-v1",
-  "status": "Proposed interface contract; prototype has no network calls",
+  "status": "Core interface summary; actual backend OpenAPI at /api/v1/docs is authoritative",
   "report": "ELEC5620 Stage One Report(1).pdf",
   "scope": "AR01–AR13 and UC01–UC10; authentication allowed by user",
   "api_prefix": "/api/v1",
-  "operation_count": 20,
+  "operation_count": 21,
   "operations": [
     {
       "method": "POST",
@@ -25,7 +25,7 @@
       "path": "/workspace",
       "requirement": "AR01–AR10、AR12；按角色复用基础记录",
       "request": "student_id? (assigned teacher only); cursor?; each list is bounded",
-      "response": "Workspace envelope; server selects Student / Teacher / Founder shape"
+      "response": "Workspace envelope; server selects Student / Teacher / Founder shape; Student includes assessment_sessions[] with current_item_id and optional follow_up"
     },
     {
       "method": "POST",
@@ -46,7 +46,7 @@
       "path": "/assessments",
       "requirement": "UC02、UC05、UC06 教师定向测评",
       "request": "{student_id,kind:initial|milestone|directed,focus?}; teacher role required for directed",
-      "response": "{id,kind,status,answered,max_items,current_item,result?}"
+      "response": "{id,kind,status,answered,max_items,current_item,result?}; HTTP 202 returns a RequestEnvelope while queued/running; completed session may include follow_up"
     },
     {
       "method": "GET",
@@ -60,21 +60,21 @@
       "path": "/assessments/{id}/answers",
       "requirement": "UC02 自适应出题与保存答案",
       "request": "{item_id,answer}; duplicate item submission is idempotent",
-      "response": "Same assessment session with next item or provisional / confirmed result"
+      "response": "Same assessment session with next item or provisional / confirmed result; HTTP 202 returns a RequestEnvelope while queued/running; completed session may include follow_up"
     },
     {
       "method": "GET",
       "path": "/reviews/{id}",
       "requirement": "UC03、UC06–UC08、AR13 所需的人类审核",
       "request": "review id; assigned teacher only",
-      "response": "{review,subject,evidence}; subject is the existing plan, assessment or interaction"
+      "response": "{review,subject,evidence,draft_answer?,draft_source_refs?}; draft fields are restricted to the assigned reviewer"
     },
     {
       "method": "POST",
       "path": "/reviews/{id}/decision",
       "requirement": "教师确认、修正、回答；重大变更记录依据",
       "request": "{action:approve|request_changes|confirm_result|answer,note?,corrected_level?}; evidence required for override",
-      "response": "{review,updated_subject}; plan approval activates the approved version once"
+      "response": "{review,updated_subject,follow_up?}; inspect follow_up.status/error for subsequent execution"
     },
     {
       "method": "PATCH",
@@ -116,7 +116,7 @@
       "path": "/cases/{id}",
       "requirement": "UC09–UC10 业务异常或技术事故依据",
       "request": "case id; Founder / permitted Technical Manager",
-      "response": "{id,kind,status,subject,trigger,diagnosis,evidence,proposal_id,decision,verification}"
+      "response": "{id,kind,status,subject,trigger,diagnosis,evidence,proposal_id,decision,verification}; available_actions includes widen_match only for teacher-matching exceptions"
     },
     {
       "method": "POST",
@@ -129,7 +129,7 @@
       "method": "POST",
       "path": "/agents/{id}/decision",
       "requirement": "UC09 停止异常 / 要求纠正",
-      "request": "{action:pause|request_correction,note,case_id?}; Founder only",
+      "request": "{action:pause|resume|request_correction,note,case_id?}; Founder only",
       "response": "Updated agent status / correction request + audit entry"
     },
     {
@@ -145,6 +145,13 @@
       "requirement": "受控更新与恢复的 Founder 审批",
       "request": "{action:approve|reject,note?}; reject requires reason; approval is version-bound",
       "response": "Same proposal + audit entries; Technical Manager executes only the approved change, verifies it, then closes the related incident"
+    },
+    {
+      "method": "POST",
+      "path": "/plans/{id}/withdraw",
+      "requirement": "Student withdrawal of an unapproved plan revision; current active plan remains unchanged",
+      "request": "Student owner only; revision must be student-requested and awaiting approval",
+      "response": "{withdrawn:true}; 409 if already reviewed or withdrawn; workspace pending_plan.revision_request includes reason, submitted_at, can_withdraw"
     }
   ],
   "request_actions": {
@@ -276,9 +283,9 @@
       "actor": "Student",
       "input": [
         "lesson_id",
-        "requested_time"
+        "slot? (local date/time in student timezone) or requested_time? (ISO timestamp)"
       ],
-      "result": "compatible proposed slot + rationale; existing booking stays until confirmation",
+      "result": "requested_available + message + available slots + teacher availability and timezone; empty input searches alternatives",
       "requirements": [
         "AR03",
         "UC03",
@@ -506,7 +513,8 @@
       "lessons[]",
       "materials[] (references only)",
       "interactions[] (recent; own only)",
-      "next_cursor?"
+      "next_cursor?",
+      "assessment_sessions[] (in_progress; owned by current student)"
     ],
     "Teacher": [
       "user",
@@ -566,5 +574,9 @@
     "Approval, execution and verification are separate auditable events; failed verification keeps the incident open.",
     "All roles and record scopes are enforced by the backend, independent of visual page navigation."
   ],
-  "implementation_note": "20 method/path operations expose only required workflows. The shared Coordinator route still contains 15 required business actions; grouping routes does not eliminate their backend work. UI richness does not add fields, tables or workflows to these records."
+  "implementation_note": "20 method/path operations expose only required workflows. The shared Coordinator route still contains 15 required business actions; grouping routes does not eliminate their backend work. UI richness does not add fields, tables or workflows to these records.",
+  "slot_check_behavior": {
+    "reschedule": "lesson_id required; slot optional. Empty time requests available alternatives. Result includes requested_available, slots, message, teacher_availability, teacher_timezone.",
+    "confirm_slot": "Send lesson_id, slot_request_id and the selected slot_id. Backend rechecks conflicts before moving the lesson."
+  }
 }

@@ -76,19 +76,33 @@ class PlanningAgent(AIAgent):
 
     def _generate_plan(self, task, data, student):
         current = learning.active_plan(student)
-        assessment = learning.latest_confirmed_proficiency(student)
+        assessment_id = ((data.upstream or {}).get("assessment") or {}).get("id")
+        assessment = learning.proficiency(assessment_id) if assessment_id else learning.latest_confirmed_proficiency(student)
         pending = learning.pending_plan(student)
-        if pending and pending.status == "pending_review" and not self._drafted_by(task, student, pending):
-            # A draft is already with the teacher: keep the new result on record, do not fail the assessment.
+        if pending and pending.status == "pending_review":
             self.runtime.note("plan_review_pending", plan_id=str(pending.pk))
-            return ok({"plan": plan_view(current or pending)})
         if current and assessment:
             if current.based_on_id == assessment.pk:
                 return ok({"plan": plan_view(current)}, confidence=assessment.confidence)
+            progress = services.apply_progress_assessment(current, assessment)
+            current.refresh_from_db()
+            self.runtime.note("progress_decision", **progress)
+            if not progress["revise"]:
+                result = ok({"plan": plan_view(current)}, confidence=assessment.confidence)
+                result.payload.update(summary=progress["message"], release_milestone=progress["advanced"])
+                return result
+            if pending and pending.status == "pending_review":
+                return ok({"plan": plan_view(current)}, confidence=assessment.confidence)
             return AgentResult(AgentStatus.TRIGGER_REPLAN, {
                 "result": {"plan": plan_view(current)},
-                "evidence": [{"ref": str(assessment.pk), "summary": assessment.gap_to_goal}],
-            }, confidence=assessment.confidence, reason="new_assessment")
+                "evidence": [{"ref": str(assessment.pk), "summary": progress["message"]}],
+            }, confidence=assessment.confidence, reason="progress_deviation")
+        if pending and pending.status == "pending_review" and not self._drafted_by(task, student, pending):
+            self.runtime.note("plan_review_pending", plan_id=str(pending.pk))
+            return ok({"plan": plan_view(current or pending)})
+        completed = learning.displayed_plan(student)
+        if completed and completed.status == "completed":
+            return ok({"plan": plan_view(completed)})
         return self._draft(task, data, student)
 
     @staticmethod
@@ -124,7 +138,7 @@ class PlanningAgent(AIAgent):
         goal = " ".join([profile.learning_goal, profile.structured_objective.get("summary", ""), *map(str, skills)]) if profile else ""
         goal_words = set(re.findall(r"[a-z]+", goal.lower())) - {"english", "learning", "learn"}
         candidates, seen = [], set()
-        for teacher in (current, intake):
+        for teacher in (current, intake, *learning.available_teachers()):
             if (teacher is None or teacher.pk in seen or not teacher.is_active
                 or role_of(teacher) != "teacher" or (replacement and teacher == current)):
                 continue
@@ -469,16 +483,34 @@ class PlanningAgent(AIAgent):
         profile = learning.profile_for(student)
         if data.reply:
             return self._book_slot(task, data, student)
-        try:
-            start = parse_slot(data.input, profile)
-            end = start + (lesson.ends_at - lesson.starts_at)
-            services.check_lesson_slot(teacher=lesson.teacher, student=student, starts_at=start, ends_at=end, exclude=lesson)
-        except DomainError:
-            return self._alternatives(lesson.teacher, student, profile, lesson=lesson)
-        slot = slot_view(start, end)
+        teacher_timezone = getattr(getattr(lesson.teacher, "teacher_profile", None), "timezone", "Australia/Sydney")
+        availability = [{"day": w.day, "start": w.start_time.strftime("%H:%M"),
+                         "end": w.end_time.strftime("%H:%M")} for w in learning.teacher_windows(lesson.teacher)]
+        requested = data.input.get("slot") or data.input.get("requested_time")
+        accepted = False
+        message = "Choose an available lesson time below."
+        slots = []
+        if requested:
+            try:
+                start = parse_slot(data.input, profile)
+                end = start + (lesson.ends_at - lesson.starts_at)
+                services.check_lesson_slot(teacher=lesson.teacher, student=student, starts_at=start, ends_at=end, exclude=lesson)
+                slots = [slot_view(start, end)]
+                accepted = True
+                message = "Your requested time is available. Confirm below to move the lesson."
+            except DomainError as exc:
+                message = str(exc)
+            except (ValueError, TypeError):
+                message = "Enter a valid date and time, or choose an available time below."
+        if not accepted:
+            slots = self._slots(lesson.teacher, student, profile, exclude=lesson, respect_student=False)
+            slots = [s for s in slots if datetime.fromisoformat(s["starts_at"]) != lesson.starts_at]
+        if not slots:
+            message += " No alternative times are available in the next 28 days. Contact your teacher to adjust availability."
         return AgentResult(AgentStatus.NEEDS_INPUT, {"phase": "student_choose_slot", "result": {
-            "lesson_id": str(lesson.pk), "proposed_slot": slot["starts_at"], "slots": [slot],
-            "question": "Confirm this lesson time.", "message": "Confirm the proposed time to move the lesson.",
+            "lesson_id": str(lesson.pk), "proposed_slot": slots[0]["starts_at"] if accepted else None,
+            "slots": slots, "requested_available": accepted, "message": message,
+            "teacher_availability": availability, "teacher_timezone": teacher_timezone,
         }})
 
     def _book_slot(self, task, data, student):

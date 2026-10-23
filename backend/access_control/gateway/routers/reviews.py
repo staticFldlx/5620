@@ -3,6 +3,8 @@ from ninja import Router
 from access_control.identity.permissions import require_role
 from domain.common import Role
 from domain.governance import selectors as governance
+from domain.learning import selectors as learning
+from orchestration.escalation.plan_revisions import withdraw_revision
 from domain.governance.models import EscalationCase
 from domain.governance.views import request_envelope, review_view
 from orchestration.escalation import escalation_manager
@@ -40,3 +42,11 @@ def decide_review(request, review_id: str, body: ReviewDecisionIn):
         "updated_subject": presenters.review_subject(case),
         "follow_up": request_envelope(follow_up) if follow_up is not None else None,
     }
+
+
+@router.post("/plans/{plan_id}/withdraw", response=dict)
+def withdraw_plan_revision(request, plan_id: str):
+    """Withdraw only the caller's student-requested, unapproved revision."""
+    require_role(request.auth, Role.STUDENT)
+    plan = lookups.get_or_404(learning.plan, plan_id, "Plan")
+    return withdraw_revision(plan, by=request.auth)

@@ -85,6 +85,8 @@ def session_view(session: AssessmentSession) -> dict:
 
 
 def plan_view(plan: LearningPlan, *, review_id: str = "") -> dict:
+    progress = selectors.history(plan.student, kinds=("progress_decision",)).filter(
+        payload__plan_id=str(plan.pk)).order_by("-created_at").first()
     return {
         "id": str(plan.pk),
         "version": plan.version,
@@ -100,10 +102,13 @@ def plan_view(plan: LearningPlan, *, review_id: str = "") -> dict:
                 "end_week": stage.end_week,
                 "topics": list(stage.topics or []),
                 "milestone": stage.milestone,
-                "status": stage.status,
+                "status": ("current" if plan.status == "active" and stage.stage_number == plan.stage_index + 1 and stage.status == "upcoming" else stage.status),
+                "target_level": selectors.stage_target_level(stage),
+                "milestone_status": selectors.milestone_status(stage),
             }
             for stage in selectors.plan_stages(plan)
         ],
+        "progress_message": progress.payload.get("message", "") if progress else "",
         "reason": plan.rationale,
         "review_id": review_id,
         "approved_at": iso(plan.approved_at),

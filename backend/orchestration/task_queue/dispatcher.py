@@ -275,6 +275,9 @@ def _finish(request: ServiceRequest, last: AgentTask) -> None:
         return _fail_request(request, "invalid_result", f"Result does not match the {request.type} contract: {exc}")
     phase = str((last.result or {}).get("phase") or "completed")
     gov.transition_request(ORCHESTRATOR, request, RequestStatus.COMPLETED, result=result, phase=phase, error=None)
+    if (last.result or {}).get("release_milestone") and request.student_id:
+        from orchestration.milestones import publish_ready_milestone
+        publish_ready_milestone(request.student, request.actor or request.student)
 
 
 def _pause(task: AgentTask, status: str, *, case: Any = None) -> None:

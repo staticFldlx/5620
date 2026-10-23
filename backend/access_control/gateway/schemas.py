@@ -51,6 +51,8 @@ class ReviewDecisionIn(Schema):
 
 
 class ReviewDetailOut(Schema):
+    draft_answer: str | None = None
+    draft_source_refs: list[dict] = []
     review: ReviewRecord
     subject: Any = None
     evidence: str

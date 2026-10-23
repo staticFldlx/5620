@@ -12,9 +12,10 @@ import { useApp } from "@/app-context"
 import type {
   Assessment,
   Interaction,
+  Lesson,
   Material,
   Plan,
-  Review,
+  ReviewDetail,
   StudentRecord,
 } from "@/api/types"
 import {
@@ -155,6 +156,7 @@ export function TeacherStudents() {
   const [note, setNote] = useState(students[ids[0]]?.observation || "")
   const [recommendation, setRecommendation] = useState("")
   const [focus, setFocus] = useState("")
+  const [revisionReason, setRevisionReason] = useState("")
   return (
     <Page
       eyebrow="STUDENT PROGRESS"
@@ -168,10 +170,13 @@ export function TeacherStudents() {
               <button
                 className={`select-row ${selected === id ? "active" : ""}`}
                 key={id}
+                disabled={busy}
                 onClick={() => {
                   setSelected(id)
                   setNote(students[id].observation || "")
                   setRecommendation("")
+                  setFocus("")
+                  setRevisionReason("")
                 }}
               >
                 <strong>{displayName(id, students[id])}</strong>
@@ -227,6 +232,67 @@ export function TeacherStudents() {
               </>
             ) : (
               <Empty />
+            )}
+          </Panel>
+          <Panel title="Request a plan revision">
+            {student?.plan?.status === "active" ? (
+              <>
+                <p>
+                  For {displayName(selected, student)} · Current version{" "}
+                  {student.plan.version}.
+                </p>
+                <p>{student.plan.progress_message}</p>
+                {student.pending_plan ? (
+                  <p>
+                    Version {student.pending_plan.version} is awaiting review.
+                    Review it before requesting another revision.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Describe the changes and supporting evidence. A new draft
+                      will be sent for teacher approval; the current plan stays
+                      active.
+                    </p>
+                    <label className="field-label">
+                      Requested plan changes
+                      <Textarea
+                        rows={4}
+                        value={revisionReason}
+                        onChange={(e) => setRevisionReason(e.target.value)}
+                        placeholder="For example: add more guided reading practice because the latest assessment shows difficulty identifying evidence."
+                      />
+                    </label>
+                    <Button
+                      className="action primary"
+                      disabled={busy || !revisionReason.trim()}
+                      onClick={async () => {
+                        const result = await run(
+                          () =>
+                            api.request(
+                              "revise_plan",
+                              { reason: revisionReason },
+                              selected
+                            ),
+                          "Plan revision submitted for review."
+                        )
+                        if (result) setRevisionReason("")
+                      }}
+                    >
+                      Submit plan revision <ArrowRight size={15} />
+                    </Button>
+                  </>
+                )}
+                <Link className="action secondary" to="/t4">
+                  Open reviews
+                </Link>
+              </>
+            ) : (
+              <p>
+                {student?.plan?.status === "completed"
+                  ? "This plan is complete."
+                  : "An approved active plan is needed before requesting a revision."}
+              </p>
             )}
           </Panel>
           <Panel title="Teacher observation">
@@ -308,13 +374,15 @@ export function TeacherStudents() {
   )
 }
 export function TeacherLessons() {
-  const { lessons, availability } = useTeacher()
+  const { lessons, availability, students } = useTeacher()
   const { run, busy } = useApp()
   const [selected, setSelected] = useState(
     lessons.find((x) => x.status === "confirmed")?.id || lessons[0]?.id || ""
   )
   const lesson = lessons.find((x) => x.id === selected)
-  const [attendance, setAttendance] = useState("attended")
+  const [attendance, setAttendance] = useState(
+    lesson?.attendance === "absent" ? "absent" : "attended"
+  )
   const [feedback, setFeedback] = useState("")
   const [slots, setSlots] = useState(availability)
   return (
@@ -329,7 +397,7 @@ export function TeacherLessons() {
             <Row
               key={item.id}
               title={item.title}
-              detail={`${fmt(item.starts_at)} · ${item.student_id}`}
+              detail={`${fmt(item.starts_at)} · ${displayName(item.student_id, students[item.student_id])}`}
               right={
                 <Pill tone={item.status === "completed" ? "good" : "info"}>
                   {item.status}
@@ -337,6 +405,9 @@ export function TeacherLessons() {
               }
               onClick={() => {
                 setSelected(item.id)
+                setAttendance(
+                  item.attendance === "absent" ? "absent" : "attended"
+                )
                 setFeedback(item.feedback || "")
               }}
             />
@@ -350,7 +421,11 @@ export function TeacherLessons() {
                   {lesson.status}
                 </Pill>
                 <h3>{fmt(lesson.starts_at)}</h3>
-                <p>Student: {lesson.student_id}</p>
+                <p>
+                  Student:{" "}
+                  {displayName(lesson.student_id, students[lesson.student_id])}
+                </p>
+                <p>Plan stage: {lesson.stage_index + 1}</p>
                 <p>Attendance: {lesson.attendance.replace("_", " ")}</p>
                 <label className="field-label">
                   Attendance
@@ -383,6 +458,11 @@ export function TeacherLessons() {
                 >
                   Save lesson record
                 </Button>
+                <p>
+                  When all lessons in the current stage are recorded as
+                  attended, a milestone assessment is automatically prepared for
+                  the student.
+                </p>
               </>
             ) : (
               <Empty />
@@ -469,30 +549,37 @@ export function TeacherReviews() {
   const [selected, setSelected] = useState(
     reviews.find((x) => x.status === "pending")?.id || reviews[0]?.id || ""
   )
-  const [detail, setDetail] = useState<{
-    review: Review
-    subject: unknown
-    evidence: string
-  } | null>(null)
+  const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState("all")
+  const [correctedLevel, setCorrectedLevel] = useState("")
   useEffect(() => {
     if (!selected) return
+    let active = true
     api
       .getReview(selected)
-      .then(setDetail)
-      .catch(() => setDetail(null))
+      .then((value) => {
+        if (active) setDetail(value)
+      })
+      .catch(() => {
+        if (active) setDetail(null)
+      })
+    return () => {
+      active = false
+    }
   }, [selected, reviews.length])
   const visible = reviews.filter((x) => filter === "all" || x.kind === filter)
   async function decide(
     action: "approve" | "request_changes" | "confirm_result" | "answer"
   ) {
     const result = await run(
-      () => api.decideReview(selected, action, note),
+      () =>
+        api.decideReview(selected, action, note, correctedLevel || undefined),
       "Review decision recorded."
     )
     if (result) {
       setNote("")
+      setCorrectedLevel("")
       setDetail(await api.getReview(selected))
     }
   }
@@ -518,10 +605,14 @@ export function TeacherReviews() {
           {visible.length ? (
             visible.map((review) => (
               <button
+                disabled={busy}
+                data-testid={`review-${review.id}`}
                 className={`select-row ${selected === review.id ? "active" : ""}`}
                 key={review.id}
                 onClick={() => {
+                  if (selected !== review.id) setDetail(null)
                   setSelected(review.id)
+                  setCorrectedLevel("")
                   setNote("")
                 }}
               >
@@ -531,7 +622,9 @@ export function TeacherReviews() {
                 </strong>
                 <small>{review.trigger}</small>
                 <Pill tone={review.status === "pending" ? "warn" : "good"}>
-                  {review.status}
+                  {review.decision === "withdraw"
+                    ? "Withdrawn by student"
+                    : review.status}
                 </Pill>
               </button>
             ))
@@ -553,13 +646,39 @@ export function TeacherReviews() {
                 <Pill
                   tone={detail.review.status === "pending" ? "warn" : "good"}
                 >
-                  {detail.review.status}
+                  {detail.review.decision === "withdraw"
+                    ? "Withdrawn by student"
+                    : detail.review.status}
                 </Pill>
               </div>
               <p>{detail.evidence}</p>
               <ReviewSubject detail={detail} />
               {detail.review.status === "pending" && (
                 <>
+                  {detail.review.kind === "assessment" && (
+                    <label className="field-label">
+                      Confirmed level (CEFR)
+                      <select
+                        value={correctedLevel}
+                        disabled={busy}
+                        onChange={(e) => setCorrectedLevel(e.target.value)}
+                      >
+                        <option value="">
+                          Keep assessed level (
+                          {(detail.subject as Assessment)?.level || "—"})
+                        </option>
+                        {["A1", "A2", "B1", "B2", "C1", "C2"].map((level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ))}
+                      </select>
+                      <small>
+                        Select a corrected level if needed. Explain the evidence
+                        below; the selected level is saved when you confirm.
+                      </small>
+                    </label>
+                  )}
                   <label className="field-label">
                     Decision note and supporting evidence
                     <Textarea
@@ -586,7 +705,9 @@ export function TeacherReviews() {
                       {detail.review.kind === "plan"
                         ? "Approve & activate"
                         : detail.review.kind === "assessment"
-                          ? "Confirm result"
+                          ? correctedLevel
+                            ? "Confirm corrected result"
+                            : "Confirm result"
                           : "Answer question"}{" "}
                       <ArrowRight size={15} />
                     </Button>
@@ -610,159 +731,255 @@ export function TeacherReviews() {
   )
 }
 export function TeacherPreparation() {
-  const { lessons, materials } = useTeacher()
-  const { run, busy } = useApp()
-  const [selected, setSelected] = useState(
-    lessons.find((x) => x.status === "confirmed")?.id || lessons[0]?.id || ""
+  const { lessons, materials, students } = useTeacher()
+  const { busy } = useApp()
+  const [studentId, setStudentId] = useState("")
+  const [lessonId, setLessonId] = useState("")
+  const defaultLesson =
+    lessons.find((x) => x.status === "confirmed") || lessons[0]
+  const studentIds = [
+    ...new Set([...Object.keys(students), ...lessons.map((x) => x.student_id)]),
+  ]
+  const selectedStudent = studentIds.includes(studentId)
+    ? studentId
+    : defaultLesson?.student_id || studentIds[0] || ""
+  const studentLessons = lessons.filter((x) => x.student_id === selectedStudent)
+  const lesson =
+    studentLessons.find((x) => x.id === lessonId) ||
+    studentLessons.find((x) => x.status === "confirmed") ||
+    studentLessons[0]
+  return (
+    <Page
+      eyebrow="TEACHING PREPARATION"
+      title="Be ready before class."
+      subtitle="Choose a student and lesson. Prepare private teaching notes and approve materials for that lesson."
+    >
+      <Panel title="Student & lesson" className="mb-6">
+        <div className="board two">
+          <label className="field-label">
+            Student
+            <select
+              aria-label="Student"
+              value={selectedStudent}
+              disabled={busy || !studentIds.length}
+              onChange={(e) => {
+                setStudentId(e.target.value)
+                setLessonId("")
+              }}
+            >
+              {!studentIds.length && (
+                <option value="">No assigned students</option>
+              )}
+              {studentIds.map((id) => (
+                <option key={id} value={id}>
+                  {displayName(id, students[id])}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            Lesson (Sydney time)
+            <select
+              aria-label="Lesson"
+              value={lesson?.id || ""}
+              disabled={busy || !studentLessons.length}
+              onChange={(e) => setLessonId(e.target.value)}
+            >
+              {!studentLessons.length && (
+                <option value="">No lessons for this student</option>
+              )}
+              {studentLessons.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title} · {fmt(item.starts_at)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p>
+          Both panels follow this selection. Save material edits before
+          switching students or lessons.
+        </p>
+      </Panel>
+      {lesson ? (
+        <LessonPreparation
+          key={lesson.id}
+          lesson={lesson}
+          studentName={displayName(selectedStudent, students[selectedStudent])}
+          materials={materials.filter((item) => item.lesson_id === lesson.id)}
+        />
+      ) : (
+        <Panel title="Teaching preparation">
+          <Empty>No lessons are available for this student yet.</Empty>
+        </Panel>
+      )}
+    </Page>
   )
+}
+
+function LessonPreparation({
+  lesson,
+  studentName,
+  materials,
+}: {
+  lesson: Lesson
+  studentName: string
+  materials: Material[]
+}) {
+  const { run, busy } = useApp()
+  const selected = lesson.id
   const [briefing, setBriefing] = useState("")
   const [title, setTitle] = useState("Evidence linking practice")
   const [materialId, setMaterialId] = useState(materials[0]?.id || "")
   const material = materials.find((x) => x.id === materialId)
   const [content, setContent] = useState(material?.content || "")
   return (
-    <Page
-      eyebrow="TEACHING PREPARATION"
-      title="Be ready before class."
-      subtitle="AI drafts briefing and material; you edit and approve what students can see."
-    >
-      <div className="board two">
-        <Panel title="Lesson briefing">
-          <label className="field-label">
-            Lesson
-            <select
-              value={selected}
-              onChange={(e) => setSelected(e.target.value)}
-            >
-              {lessons.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="visual-panel">
-            <AIVisual variant="paper" />
-          </div>
-          <Button
-            className="action primary"
-            disabled={busy || !selected}
-            onClick={async () => {
-              const result = await run(() =>
+    <div className="board two">
+      <Panel title="Lesson briefing">
+        <p>
+          <strong>{studentName}</strong> · {lesson.title} ·{" "}
+          {fmt(lesson.starts_at)} (Sydney time)
+        </p>
+        <p>
+          Private preparation notes for this lesson. Students cannot see this
+          briefing.
+        </p>
+        <div className="visual-panel">
+          <AIVisual variant="paper" />
+        </div>
+        <Button
+          className="action primary"
+          disabled={busy}
+          onClick={async () => {
+            const result = await run(() =>
+              api.request(
+                "lesson_briefing",
+                { lesson_id: selected },
+                undefined,
+                selected
+              )
+            )
+            if (result) setBriefing(String(result.result.briefing))
+          }}
+        >
+          Prepare briefing <Sparkles size={15} />
+        </Button>
+        {briefing ? (
+          <section aria-label="Generated lesson briefing">
+            <Status>{briefing}</Status>
+          </section>
+        ) : (
+          <Empty>Prepare a briefing for the selected lesson.</Empty>
+        )}
+      </Panel>
+      <Panel title="Teaching material">
+        <label className="field-label">
+          Material
+          <select
+            aria-label="Material"
+            value={materialId}
+            disabled={busy || !materials.length}
+            onChange={(e) => {
+              setMaterialId(e.target.value)
+              setContent(
+                materials.find((item) => item.id === e.target.value)?.content ||
+                  ""
+              )
+            }}
+          >
+            {!materials.length && (
+              <option value="">No materials for this lesson</option>
+            )}
+            {materials.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.title} · {x.status}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!materials.length && (
+          <Empty>
+            No materials for this lesson yet. Generate a draft below.
+          </Empty>
+        )}
+        {material && (
+          <>
+            <Pill tone={material.status === "approved" ? "good" : "warn"}>
+              {material.status}
+            </Pill>
+            <p>{material.locator}</p>
+            <Textarea
+              rows={7}
+              aria-label="Material content"
+              disabled={busy}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+            />
+            <div className="button-row">
+              <Button
+                className="action secondary"
+                disabled={busy}
+                onClick={() =>
+                  run(
+                    () => api.saveMaterial(material.id, content, "draft"),
+                    "Draft saved."
+                  )
+                }
+              >
+                Save draft
+              </Button>
+              <Button
+                className="action primary"
+                disabled={busy}
+                onClick={() =>
+                  run(
+                    () => api.saveMaterial(material.id, content, "approved"),
+                    "Material approved."
+                  )
+                }
+              >
+                Approve material
+              </Button>
+            </div>
+          </>
+        )}
+        <div className="divider" />
+        <h3>Generate a draft</h3>
+        <Input
+          value={title}
+          disabled={busy}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Material title"
+        />
+        <Button
+          className="action secondary"
+          disabled={busy || !title.trim()}
+          onClick={async () => {
+            const result = await run(
+              () =>
                 api.request(
-                  "lesson_briefing",
-                  { lesson_id: selected },
+                  "generate_material",
+                  { title, lesson_id: selected },
                   undefined,
                   selected
-                )
-              )
-              if (result) setBriefing(String(result.result.briefing))
-            }}
-          >
-            Prepare briefing <Sparkles size={15} />
-          </Button>
-          {briefing && <Status>{briefing}</Status>}
-        </Panel>
-        <Panel title="Teaching material">
-          <label className="field-label">
-            Material
-            <select
-              value={materialId}
-              onChange={(e) => {
-                setMaterialId(e.target.value)
-                setContent(
-                  materials.find((item) => item.id === e.target.value)
-                    ?.content || ""
-                )
-              }}
-            >
-              {materials.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {x.title} · {x.status}
-                </option>
-              ))}
-            </select>
-          </label>
-          {material && (
-            <>
-              <Pill tone={material.status === "approved" ? "good" : "warn"}>
-                {material.status}
-              </Pill>
-              <p>{material.locator}</p>
-              <Textarea
-                rows={7}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-              />
-              <div className="button-row">
-                <Button
-                  className="action secondary"
-                  disabled={busy}
-                  onClick={() =>
-                    run(
-                      () => api.saveMaterial(material.id, content, "draft"),
-                      "Draft saved."
-                    )
-                  }
-                >
-                  Save draft
-                </Button>
-                <Button
-                  className="action primary"
-                  disabled={busy}
-                  onClick={() =>
-                    run(
-                      () => api.saveMaterial(material.id, content, "approved"),
-                      "Material approved."
-                    )
-                  }
-                >
-                  Approve material
-                </Button>
-              </div>
-            </>
-          )}
-          <div className="divider" />
-          <h3>Generate a draft</h3>
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Material title"
-          />
-          <Button
-            className="action secondary"
-            disabled={busy || !title.trim()}
-            onClick={async () => {
-              const result = await run(
-                () =>
-                  api.request(
-                    "generate_material",
-                    { title, lesson_id: selected },
-                    undefined,
-                    selected
-                  ),
-                "Draft material created."
-              )
-              if (result) {
-                const created = result.result.material as Material
-                setMaterialId(created.id)
-                setContent(created.content)
-              }
-            }}
-          >
-            Generate draft <Sparkles size={15} />
-          </Button>
-        </Panel>
-      </div>
-    </Page>
+                ),
+              "Draft material created."
+            )
+            if (result) {
+              const created = result.result.material as Material
+              setMaterialId(created.id)
+              setContent(created.content)
+            }
+          }}
+        >
+          Generate draft <Sparkles size={15} />
+        </Button>
+      </Panel>
+    </div>
   )
 }
 
-function ReviewSubject({
-  detail,
-}: {
-  detail: { review: Review; subject: unknown; evidence: string }
-}) {
+function ReviewSubject({ detail }: { detail: ReviewDetail }) {
   if (detail.review.kind === "plan") {
     const plan = detail.subject as Plan | null
     return (
@@ -829,6 +1046,26 @@ function ReviewSubject({
         <>
           <Row title="Student question" detail={item.question} />
           <Row title="Current answer" detail={item.answer} />
+          {detail.draft_answer && (
+            <section aria-label="AI draft (not sent)">
+              <h3>AI draft (not sent)</h3>
+              <Status>{detail.draft_answer}</Status>
+              {!!detail.draft_source_refs?.length && (
+                <ul>
+                  {detail.draft_source_refs.map((source, index) => (
+                    <li key={index}>
+                      {source.title || source.material_id}
+                      {source.locator ? ` · ${source.locator}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p>
+                Review the draft and write your final answer below. The student
+                has not received this draft.
+              </p>
+            </section>
+          )}
           <Row
             title="Confidence"
             detail={`${Math.round(item.confidence * 100)}%`}
