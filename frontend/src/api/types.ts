@@ -213,6 +213,11 @@ export type RequestEnvelope = {
   error?: { code: string; message: string } | null
 }
 
+export type AssessmentResponse = {
+  number: number
+  prompt: string
+  answer: string
+}
 export type AssessmentSession = {
   id: string
   student_id: string
@@ -222,6 +227,7 @@ export type AssessmentSession = {
   current_item_id: string | null
   answered: number
   answered_items: string[]
+  responses?: AssessmentResponse[]
   max_items: number
   status: string
   result?: Assessment | null

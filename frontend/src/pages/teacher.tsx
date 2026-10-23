@@ -7,6 +7,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react"
+import { AssessmentAnswers } from "@/components/assessment-answers"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
 import type {
@@ -234,6 +235,34 @@ export function TeacherStudents() {
               <Empty />
             )}
           </Panel>
+          {student && (
+            <Panel title="Assessment records">
+              {student.assessments.length ? (
+                student.assessments.map((item, index) => (
+                  <div className="record-card" key={item.id}>
+                    <div>
+                      <strong>
+                        Assessment {index + 1} ·{" "}
+                        {item.kind.replaceAll("_", " ")}
+                      </strong>
+                      <Pill
+                        tone={item.status === "confirmed" ? "good" : "warn"}
+                      >
+                        {item.status.replaceAll("_", " ")}
+                      </Pill>
+                    </div>
+                    <p>
+                      Level {item.level} · {fmt(item.created_at)}
+                    </p>
+                    <p>{item.feedback}</p>
+                    <AssessmentAnswers key={item.id} assessmentId={item.id} />
+                  </div>
+                ))
+              ) : (
+                <Empty>No assessment records yet.</Empty>
+              )}
+            </Panel>
+          )}
           <Panel title="Request a plan revision">
             {student?.plan?.status === "active" ? (
               <>
@@ -1032,6 +1061,7 @@ function ReviewSubject({ detail }: { detail: ReviewDetail }) {
             <p>{item.feedback}</p>
             <Row title="Strengths" detail={item.strengths.join(", ")} />
             <Row title="Areas to review" detail={item.weaknesses.join(", ")} />
+            <AssessmentAnswers key={item.id} assessmentId={item.id} />
           </>
         ) : (
           <Empty />

@@ -13,6 +13,7 @@ import {
   Sparkles,
   Target,
 } from "lucide-react"
+import { AssessmentAnswers } from "@/components/assessment-answers"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
 import type {
@@ -899,6 +900,7 @@ export function StudentAssessments() {
                   {Math.round(item.confidence * 100)}%
                 </p>
                 <small>{item.feedback}</small>
+                <AssessmentAnswers key={item.id} assessmentId={item.id} />
               </div>
             ))
           ) : (
