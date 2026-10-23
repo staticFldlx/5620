@@ -153,13 +153,17 @@ export const api = {
   decideReview: async (
     id: string,
     action: "approve" | "request_changes" | "confirm_result" | "answer",
-    note: string
+    note: string,
+    correctedLevel?: string
   ) =>
     decision(
       (
         await http.post<DecisionResult>(`/reviews/${id}/decision`, {
           action,
           note,
+          ...(action === "confirm_result" && correctedLevel
+            ? { corrected_level: correctedLevel }
+            : {}),
         })
       ).data
     ),

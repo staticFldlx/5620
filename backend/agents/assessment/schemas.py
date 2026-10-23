@@ -43,6 +43,7 @@ class AssessmentReport(BaseModel):
 class StartInput(BaseModel):
     kind: str  # initial | milestone | directed
     focus: str = ""
+    milestone_stage_id: str | None = None
 
 
 class AnswerReply(BaseModel):

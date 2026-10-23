@@ -76,19 +76,33 @@ class PlanningAgent(AIAgent):
 
     def _generate_plan(self, task, data, student):
         current = learning.active_plan(student)
-        assessment = learning.latest_confirmed_proficiency(student)
+        assessment_id = ((data.upstream or {}).get("assessment") or {}).get("id")
+        assessment = learning.proficiency(assessment_id) if assessment_id else learning.latest_confirmed_proficiency(student)
         pending = learning.pending_plan(student)
-        if pending and pending.status == "pending_review" and not self._drafted_by(task, student, pending):
-            # A draft is already with the teacher: keep the new result on record, do not fail the assessment.
+        if pending and pending.status == "pending_review":
             self.runtime.note("plan_review_pending", plan_id=str(pending.pk))
-            return ok({"plan": plan_view(current or pending)})
         if current and assessment:
             if current.based_on_id == assessment.pk:
                 return ok({"plan": plan_view(current)}, confidence=assessment.confidence)
+            progress = services.apply_progress_assessment(current, assessment)
+            current.refresh_from_db()
+            self.runtime.note("progress_decision", **progress)
+            if not progress["revise"]:
+                result = ok({"plan": plan_view(current)}, confidence=assessment.confidence)
+                result.payload.update(summary=progress["message"], release_milestone=progress["advanced"])
+                return result
+            if pending and pending.status == "pending_review":
+                return ok({"plan": plan_view(current)}, confidence=assessment.confidence)
             return AgentResult(AgentStatus.TRIGGER_REPLAN, {
                 "result": {"plan": plan_view(current)},
-                "evidence": [{"ref": str(assessment.pk), "summary": assessment.gap_to_goal}],
-            }, confidence=assessment.confidence, reason="new_assessment")
+                "evidence": [{"ref": str(assessment.pk), "summary": progress["message"]}],
+            }, confidence=assessment.confidence, reason="progress_deviation")
+        if pending and pending.status == "pending_review" and not self._drafted_by(task, student, pending):
+            self.runtime.note("plan_review_pending", plan_id=str(pending.pk))
+            return ok({"plan": plan_view(current or pending)})
+        completed = learning.displayed_plan(student)
+        if completed and completed.status == "completed":
+            return ok({"plan": plan_view(completed)})
         return self._draft(task, data, student)
 
     @staticmethod

@@ -648,7 +648,7 @@ def test_automatic_replan_uses_shared_dispatcher_and_keeps_assessment_contract(l
     teacher = User.objects.get(pk=key("teacher-emily"))
     old = active_for(learner, teacher)
     session = services.create_assessment_session("assessment", student=learner, type="milestone", status="completed")
-    new_record = services.record_proficiency("assessment", session=session, overall_level="B2", weak_areas=["Writing"],
+    new_record = services.record_proficiency("assessment", session=session, overall_level="B1", weak_areas=["Writing"],
         status="confirmed", confidence=0.9, gap_to_goal="Writing still needs support")
     request = assessment_to_planning(learner, new_record)
     assert request.status == "awaiting_approval", request.error

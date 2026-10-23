@@ -71,7 +71,7 @@ def active_plan(student: Any) -> LearningPlan | None:
 def pending_plan(student: Any) -> LearningPlan | None:
     """Return an unfinished plan newer than the active version, preserving older history."""
     candidates = LearningPlan.objects.filter(student=student, status__in=PENDING_PLAN_STATUSES)
-    current = active_plan(student)
+    current = displayed_plan(student)
     if current is not None:
         # Corrected predecessors retain changes_requested for the audit trail.
         # Once their replacement is active, they no longer block a new revision.
@@ -323,3 +323,36 @@ def student_archive_snapshot(student_id: str) -> dict:
         "has_pending_assessments": has_pending_assessments,
         "has_unresolved_reviews": has_unresolved_reviews,
     }
+
+
+CEFR_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2")
+
+
+def displayed_plan(student):
+    return active_plan(student) or LearningPlan.objects.filter(student=student, status="completed").order_by("-version").first()
+
+
+def milestone_stage(stage_id, student):
+    stage = PlanStage.objects.select_related("plan", "plan__based_on").filter(pk=stage_id, plan__student=student, plan__status="active").first()
+    return stage if stage and stage.stage_number == stage.plan.stage_index + 1 and stage.status != "completed" else None
+
+
+def stage_target_level(stage):
+    import re
+    explicit = re.findall(r"\b(?:A[12]|B[12]|C[12])\b", stage.milestone.upper())
+    levels = explicit or [c.level.upper() for c in stage.courses.all() if c.level.upper() in CEFR_LEVELS]
+    baseline = stage.plan.based_on.overall_level if stage.plan.based_on else ""
+    return max(levels, key=CEFR_LEVELS.index) if levels else baseline if baseline in CEFR_LEVELS else "B1"
+
+
+def stage_lessons_attended(stage):
+    lessons = stage.lessons.exclude(status="cancelled")
+    return lessons.exists() and not lessons.exclude(status="completed", attendance="attended").exists()
+
+
+def milestone_status(stage):
+    if stage.status == "completed":
+        return "completed"
+    if stage.milestone_request_id:
+        return stage.milestone_request.status
+    return "ready" if stage_lessons_attended(stage) else "lessons_pending"

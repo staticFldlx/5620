@@ -70,6 +70,8 @@ class StageRecord(Record):
     topics: list[str]
     milestone: str
     status: str
+    target_level: str = ""
+    milestone_status: str = ""
 
 
 class RevisionRequestRecord(Record):
@@ -90,6 +92,7 @@ class PlanRecord(Record):
     review_id: str
     approved_at: str | None
     revision_request: RevisionRequestRecord | None = None
+    progress_message: str = ""
 
 
 class LessonRecord(Record):
@@ -478,6 +481,7 @@ class GenerateMaterialInput(LessonRefInput):
 class StartAssessmentInput(Record):
     kind: str
     focus: str = ""
+    milestone_stage_id: str | None = None
 
 
 class ReplyInput(Record):

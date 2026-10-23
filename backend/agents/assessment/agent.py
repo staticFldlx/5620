@@ -62,6 +62,10 @@ class AssessmentAgent(AIAgent):
 
     def _start(self, task: TaskInput, student: Any, payload: ConductPayload) -> AgentResult:
         kind, focus = payload.input.kind, payload.input.focus.strip()
+        if payload.input.milestone_stage_id:
+            stage = learning.milestone_stage(payload.input.milestone_stage_id, student)
+            if kind != "milestone" or stage is None or not learning.stage_lessons_attended(stage):
+                return _failed("stale_milestone", "This milestone no longer belongs to the active stage.")
         learner = context.learner(student, kind)
         skills, proxied = adaptive.plan_skills(learner["focus_skills"], focus)
         level = learner["start_level"]
@@ -77,6 +81,10 @@ class AssessmentAgent(AIAgent):
         item = self._generate(learner, skills, number=1, level=level, focus=focus, previous=[])
         item["planned_skills"] = skills
         fields: dict[str, Any] = {"focus": focus, "difficulty": level, "max_items": adaptive.MAX_ITEMS, "items": [item]}
+        fields["baseline_level"] = learner["baseline_level"] or ""
+        if payload.input.milestone_stage_id:
+            fields["milestone_stage"] = stage
+            fields["milestone_target_level"] = learning.stage_target_level(stage)
         if task.ctx.actor_role == "teacher":
             fields["requested_by_id"] = task.ctx.actor_id  # directed assessment (UC06 3a)
         session = learning_services.create_assessment_session(AGENT_ID, student=student, type=kind, **fields)

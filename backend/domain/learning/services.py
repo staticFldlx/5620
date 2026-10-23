@@ -112,6 +112,7 @@ def activate_plan(actor: Any, plan: LearningPlan, *, approved_by: Any) -> Learni
         for old in LearningPlan.objects.select_for_update().filter(student=plan.student, status="active").exclude(pk=plan.pk):
             save_fields(actor, old, "plan.superseded", {"status": "superseded"})
         save_fields(actor, plan, "plan.activated", {"status": "active", "approved_by": approved_by, "approved_at": timezone.now()})
+        initialise_stage_statuses(plan)
     return plan
 
 
@@ -219,3 +220,71 @@ def append_history(actor: str, *, student: Any, kind: str, payload: dict, confid
         )
         record_audit(actor, f"history.{kind}", entry, detail={"escalated": escalated})
     return entry
+
+
+
+def initialise_stage_statuses(plan):
+    """Planning owns stage transitions; never infer completion from elapsed time."""
+    for index, stage in enumerate(plan.stages.order_by("stage_number")):
+        if stage.status == "completed":
+            continue
+        status = "current" if index == plan.stage_index else "upcoming"
+        if stage.status != status:
+            save_fields("planning", stage, "stage.status_updated", {"status": status})
+
+
+def apply_progress_assessment(plan, assessment):
+    """Return an auditable on-track/revision decision; only confirmed evidence can advance a stage.
+
+    A drop of >= one CEFR band is significant. At a course-completion checkpoint,
+    the confirmed level must also meet the milestone's stated CEFR target (or
+    catalogue level, falling back to the plan baseline). Never interpret free-text
+    weakness descriptions as an instruction to change the plan.
+    """
+    from . import selectors
+    with transaction.atomic():
+        plan = LearningPlan.objects.select_for_update().get(pk=plan.pk)
+        if assessment.status != "confirmed" or assessment.session.student_id != plan.student_id:
+            return {"revise": False, "advanced": False, "message": "Awaiting confirmed evidence."}
+        previous = LearningHistoryEntry.objects.filter(student_id=plan.student_id, kind="progress_decision", payload__plan_id=str(plan.pk), payload__assessment_id=str(assessment.pk)).first()
+        if previous:
+            return {**previous.payload, "advanced": False}
+        session = assessment.session
+        if plan.status != "active" or (session.milestone_stage_id and session.milestone_stage.plan_id != plan.pk):
+            return {"revise": False, "advanced": False, "message": "Historical assessment saved; current plan unchanged."}
+        # Late results for an earlier stage must not move the current stage or replan it.
+        if session.milestone_stage_id and session.milestone_stage.stage_number != plan.stage_index + 1:
+            return {"revise": False, "advanced": False, "message": "Earlier milestone saved; current stage unchanged."}
+        levels = selectors.CEFR_LEVELS
+        baseline = session.baseline_level or (plan.based_on.overall_level if plan.based_on else "")
+        level = assessment.overall_level
+        if level not in levels:
+            return {"revise": False, "advanced": False, "message": "A confirmed CEFR level is required to assess progress."}
+        # A late result collected before this plan's baseline cannot revise the newer plan.
+        if plan.based_on and assessment.created_at < plan.based_on.created_at:
+            return {"revise": False, "advanced": False, "message": "Historical assessment saved; newer plan evidence is retained."}
+        regressed = level in levels and baseline in levels and levels.index(level) < levels.index(baseline)
+        stage = session.milestone_stage
+        checkpoint = bool(stage and selectors.stage_lessons_attended(stage))
+        target = session.milestone_target_level or (selectors.stage_target_level(stage) if stage else "")
+        below_target = checkpoint and level in levels and target in levels and levels.index(level) < levels.index(target)
+        revise = regressed or below_target
+        advanced = False
+        if revise:
+            message = f"Plan review required: confirmed level {level}; baseline {baseline or 'not available'}" + (f"; milestone target {target}." if checkpoint else ".")
+        elif checkpoint:
+            save_fields("planning", stage, "stage.completed", {"status": "completed"})
+            next_stage = plan.stages.filter(stage_number__gt=stage.stage_number).order_by("stage_number").first()
+            if next_stage:
+                save_fields("planning", plan, "plan.stage_advanced", {"stage_index": next_stage.stage_number - 1})
+                initialise_stage_statuses(plan)
+                message = f"Milestone achieved at {level}. Stage {stage.stage_number} completed; Stage {next_stage.stage_number} is current. Plan version unchanged."
+            else:
+                save_fields("planning", plan, "plan.completed", {"status": "completed"})
+                message = f"Final milestone achieved at {level}. All plan stages are complete."
+            advanced = True
+        else:
+            message = f"Progress is on track at {level}. Current plan and stage are unchanged."
+        result = {"plan_id": str(plan.pk), "assessment_id": str(assessment.pk), "revise": revise, "advanced": advanced, "message": message}
+        append_history("planning", student=plan.student, kind="progress_decision", payload=result)
+        return result

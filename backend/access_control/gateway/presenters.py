@@ -48,7 +48,7 @@ def student_record(student: Any) -> dict:
         "name": student.name,
         "profile": lviews.profile_view(learning.profile_for(student)),
         "assessments": [lviews.proficiency_view(p) for p in learning.proficiency_records(student)][-limit():],
-        "plan": plan_record(learning.active_plan(student)),
+        "plan": plan_record(learning.displayed_plan(student)),
         "pending_plan": plan_record(learning.pending_plan(student)),
         "material_records": [lviews.material_completion_view(e) for e in learning.history(student, kinds=("material_completed",))][-limit():],
         "observation": observation.text if observation else "",

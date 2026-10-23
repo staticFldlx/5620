@@ -156,6 +156,7 @@ export function TeacherStudents() {
   const [note, setNote] = useState(students[ids[0]]?.observation || "")
   const [recommendation, setRecommendation] = useState("")
   const [focus, setFocus] = useState("")
+  const [revisionReason, setRevisionReason] = useState("")
   return (
     <Page
       eyebrow="STUDENT PROGRESS"
@@ -169,10 +170,13 @@ export function TeacherStudents() {
               <button
                 className={`select-row ${selected === id ? "active" : ""}`}
                 key={id}
+                disabled={busy}
                 onClick={() => {
                   setSelected(id)
                   setNote(students[id].observation || "")
                   setRecommendation("")
+                  setFocus("")
+                  setRevisionReason("")
                 }}
               >
                 <strong>{displayName(id, students[id])}</strong>
@@ -228,6 +232,67 @@ export function TeacherStudents() {
               </>
             ) : (
               <Empty />
+            )}
+          </Panel>
+          <Panel title="Request a plan revision">
+            {student?.plan?.status === "active" ? (
+              <>
+                <p>
+                  For {displayName(selected, student)} · Current version{" "}
+                  {student.plan.version}.
+                </p>
+                <p>{student.plan.progress_message}</p>
+                {student.pending_plan ? (
+                  <p>
+                    Version {student.pending_plan.version} is awaiting review.
+                    Review it before requesting another revision.
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Describe the changes and supporting evidence. A new draft
+                      will be sent for teacher approval; the current plan stays
+                      active.
+                    </p>
+                    <label className="field-label">
+                      Requested plan changes
+                      <Textarea
+                        rows={4}
+                        value={revisionReason}
+                        onChange={(e) => setRevisionReason(e.target.value)}
+                        placeholder="For example: add more guided reading practice because the latest assessment shows difficulty identifying evidence."
+                      />
+                    </label>
+                    <Button
+                      className="action primary"
+                      disabled={busy || !revisionReason.trim()}
+                      onClick={async () => {
+                        const result = await run(
+                          () =>
+                            api.request(
+                              "revise_plan",
+                              { reason: revisionReason },
+                              selected
+                            ),
+                          "Plan revision submitted for review."
+                        )
+                        if (result) setRevisionReason("")
+                      }}
+                    >
+                      Submit plan revision <ArrowRight size={15} />
+                    </Button>
+                  </>
+                )}
+                <Link className="action secondary" to="/t4">
+                  Open reviews
+                </Link>
+              </>
+            ) : (
+              <p>
+                {student?.plan?.status === "completed"
+                  ? "This plan is complete."
+                  : "An approved active plan is needed before requesting a revision."}
+              </p>
             )}
           </Panel>
           <Panel title="Teacher observation">
@@ -315,7 +380,9 @@ export function TeacherLessons() {
     lessons.find((x) => x.status === "confirmed")?.id || lessons[0]?.id || ""
   )
   const lesson = lessons.find((x) => x.id === selected)
-  const [attendance, setAttendance] = useState("attended")
+  const [attendance, setAttendance] = useState(
+    lesson?.attendance === "absent" ? "absent" : "attended"
+  )
   const [feedback, setFeedback] = useState("")
   const [slots, setSlots] = useState(availability)
   return (
@@ -338,6 +405,9 @@ export function TeacherLessons() {
               }
               onClick={() => {
                 setSelected(item.id)
+                setAttendance(
+                  item.attendance === "absent" ? "absent" : "attended"
+                )
                 setFeedback(item.feedback || "")
               }}
             />
@@ -355,6 +425,7 @@ export function TeacherLessons() {
                   Student:{" "}
                   {displayName(lesson.student_id, students[lesson.student_id])}
                 </p>
+                <p>Plan stage: {lesson.stage_index + 1}</p>
                 <p>Attendance: {lesson.attendance.replace("_", " ")}</p>
                 <label className="field-label">
                   Attendance
@@ -387,6 +458,11 @@ export function TeacherLessons() {
                 >
                   Save lesson record
                 </Button>
+                <p>
+                  When all lessons in the current stage are recorded as
+                  attended, a milestone assessment is automatically prepared for
+                  the student.
+                </p>
               </>
             ) : (
               <Empty />
@@ -476,23 +552,34 @@ export function TeacherReviews() {
   const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState("all")
+  const [correctedLevel, setCorrectedLevel] = useState("")
   useEffect(() => {
     if (!selected) return
+    let active = true
     api
       .getReview(selected)
-      .then(setDetail)
-      .catch(() => setDetail(null))
+      .then((value) => {
+        if (active) setDetail(value)
+      })
+      .catch(() => {
+        if (active) setDetail(null)
+      })
+    return () => {
+      active = false
+    }
   }, [selected, reviews.length])
   const visible = reviews.filter((x) => filter === "all" || x.kind === filter)
   async function decide(
     action: "approve" | "request_changes" | "confirm_result" | "answer"
   ) {
     const result = await run(
-      () => api.decideReview(selected, action, note),
+      () =>
+        api.decideReview(selected, action, note, correctedLevel || undefined),
       "Review decision recorded."
     )
     if (result) {
       setNote("")
+      setCorrectedLevel("")
       setDetail(await api.getReview(selected))
     }
   }
@@ -518,11 +605,14 @@ export function TeacherReviews() {
           {visible.length ? (
             visible.map((review) => (
               <button
+                disabled={busy}
                 data-testid={`review-${review.id}`}
                 className={`select-row ${selected === review.id ? "active" : ""}`}
                 key={review.id}
                 onClick={() => {
+                  if (selected !== review.id) setDetail(null)
                   setSelected(review.id)
+                  setCorrectedLevel("")
                   setNote("")
                 }}
               >
@@ -565,6 +655,30 @@ export function TeacherReviews() {
               <ReviewSubject detail={detail} />
               {detail.review.status === "pending" && (
                 <>
+                  {detail.review.kind === "assessment" && (
+                    <label className="field-label">
+                      Confirmed level (CEFR)
+                      <select
+                        value={correctedLevel}
+                        disabled={busy}
+                        onChange={(e) => setCorrectedLevel(e.target.value)}
+                      >
+                        <option value="">
+                          Keep assessed level (
+                          {(detail.subject as Assessment)?.level || "—"})
+                        </option>
+                        {["A1", "A2", "B1", "B2", "C1", "C2"].map((level) => (
+                          <option key={level} value={level}>
+                            {level}
+                          </option>
+                        ))}
+                      </select>
+                      <small>
+                        Select a corrected level if needed. Explain the evidence
+                        below; the selected level is saved when you confirm.
+                      </small>
+                    </label>
+                  )}
                   <label className="field-label">
                     Decision note and supporting evidence
                     <Textarea
@@ -591,7 +705,9 @@ export function TeacherReviews() {
                       {detail.review.kind === "plan"
                         ? "Approve & activate"
                         : detail.review.kind === "assessment"
-                          ? "Confirm result"
+                          ? correctedLevel
+                            ? "Confirm corrected result"
+                            : "Confirm result"
                           : "Answer question"}{" "}
                       <ArrowRight size={15} />
                     </Button>

@@ -41,6 +41,11 @@ def start_assessment(request, body: AssessmentIn):
     if (role == Role.TEACHER) != (body.kind == "directed"):
         raise Forbidden("forbidden_assessment_kind", "Directed assessments are requested by teachers; students start initial or milestone ones.")
     student = lookups.accessible_student(user, body.student_id)
+    if body.kind == "milestone":
+        from orchestration.milestones import publish_ready_milestone
+        milestone = publish_ready_milestone(student, user, retry_rejected=True)
+        if milestone is not None:
+            return _session_response(milestone)
     created = dispatcher.submit("start_assessment", actor=user, actor_role=role, student=student, input={"kind": body.kind, "focus": body.focus or ""})
     return _session_response(created)
 

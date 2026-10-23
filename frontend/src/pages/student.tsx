@@ -74,6 +74,28 @@ function studentNextStep(
   student: StudentRecord | undefined,
   sessions: AssessmentSession[]
 ) {
+  if (student?.plan?.status === "completed" && !student.pending_plan)
+    return {
+      href: "/s4",
+      label: "View completed plan",
+      title: "Your learning plan is complete",
+      description:
+        "All stages are complete. View your milestones and recorded assessment results.",
+    }
+  if (
+    student?.plan &&
+    sessions.some(
+      (session) =>
+        session.kind === "milestone" && session.status === "in_progress"
+    )
+  )
+    return {
+      href: "/s3",
+      label: "Continue milestone assessment",
+      title: "Your milestone assessment is ready",
+      description:
+        "Complete the assessment for your current stage. A confirmed result is needed before moving to the next stage.",
+    }
   if (student?.plan || student?.pending_plan || latestConfirmed(student))
     return {
       href: "/s4",
@@ -200,7 +222,9 @@ export function StudentOverview() {
           label="Learning stage"
           value={
             plan
-              ? `${plan.stage_index + 1}/${plan.stages.length}`
+              ? plan.status === "completed"
+                ? "Completed"
+                : `${plan.stage_index + 1}/${plan.stages.length}`
               : "Not started"
           }
           note={
@@ -296,7 +320,9 @@ export function StudentOverview() {
                 ))}
               </div>
               <p>
-                Stage {plan.stage_index + 1} of {plan.stages.length}
+                {plan.status === "completed"
+                  ? `All ${plan.stages.length} stages completed`
+                  : `Stage ${plan.stage_index + 1} of ${plan.stages.length}`}
               </p>
               <div className="key-values">
                 <span>
@@ -895,7 +921,11 @@ export function StudentPlan() {
     <Page
       eyebrow="PERSONALISED PLAN"
       title="A path shaped around your goal."
-      subtitle="The current plan remains active while any major revision awaits teacher approval."
+      subtitle={
+        plan?.status === "completed"
+          ? "Your completed stages and milestones remain available in your learning record."
+          : "The current plan remains active while any major revision awaits teacher approval."
+      }
     >
       <div className="board two-thirds">
         <Panel
@@ -909,14 +939,18 @@ export function StudentPlan() {
             <>
               <div className="notice-strip">
                 <Pill tone={plan ? "good" : "warn"}>
-                  {plan ? "Active" : "Pending review"}
+                  {plan
+                    ? plan.status === "completed"
+                      ? "Completed"
+                      : "Active"
+                    : "Pending review"}
                 </Pill>
                 <span>{displayPlan.reason}</span>
               </div>
               <div className="stages">
                 {displayPlan.stages.map((stage, i) => (
                   <div
-                    className={`stage-card ${i === displayPlan.stage_index ? "current" : ""}`}
+                    className={`stage-card ${stage.status === "current" ? "current" : ""}`}
                     key={stage.title}
                   >
                     <span>{String(i + 1).padStart(2, "0")}</span>
@@ -927,6 +961,36 @@ export function StudentPlan() {
                         {stage.topics.join(" · ")}
                       </small>
                       <p>Milestone: {stage.milestone}</p>
+                      {stage.target_level && (
+                        <p>Milestone target: {stage.target_level}</p>
+                      )}
+                      {stage.status === "current" && (
+                        <p>
+                          Complete all lessons with recorded attendance, then
+                          pass the confirmed milestone assessment to advance.
+                        </p>
+                      )}
+                      {stage.milestone_status &&
+                        stage.status !== "completed" &&
+                        stage.milestone_status !== "lessons_pending" && (
+                          <p>
+                            Milestone assessment:{" "}
+                            {(
+                              {
+                                queued: "Preparing assessment",
+                                running: "Preparing assessment",
+                                awaiting_input:
+                                  "Ready to continue in Assessments",
+                                escalated: "Awaiting teacher review",
+                                awaiting_approval: "Awaiting teacher review",
+                                completed: "Result recorded",
+                                failed: "Start a new attempt in Assessments",
+                                ready: "Ready to start in Assessments",
+                              } as Record<string, string>
+                            )[stage.milestone_status] || "In progress"}
+                            .
+                          </p>
+                        )}
                     </div>
                     <Pill
                       tone={
@@ -956,9 +1020,14 @@ export function StudentPlan() {
               {student?.pending_plan
                 ? `Version ${student.pending_plan.version} is pending teacher review.`
                 : plan
-                  ? "Your approved plan is active."
+                  ? plan.status === "completed"
+                    ? "Your learning plan is complete."
+                    : "Your approved plan is active."
                   : "Complete your goal and assessment. Your teacher will review the first plan."}
             </p>
+            {plan?.progress_message && (
+              <p role="status">{plan.progress_message}</p>
+            )}
             <div className="key-values">
               <span>
                 Teacher<strong>{displayPlan?.teacher.name || "—"}</strong>
@@ -1057,7 +1126,7 @@ export function StudentPlan() {
                   </Button>
                 ))}
             </Panel>
-          ) : plan ? (
+          ) : plan?.status === "active" ? (
             <Panel title="Request a change">
               <p>
                 Tell your teacher what needs adjusting. Approval is required
@@ -1082,6 +1151,16 @@ export function StudentPlan() {
               >
                 Request revision <ArrowRight size={15} />
               </Button>
+            </Panel>
+          ) : plan?.status === "completed" ? (
+            <Panel title="Plan completed">
+              <p>
+                All stages and their milestone assessments are complete. Your
+                results remain in your learning record.
+              </p>
+              <Link className="action secondary" to="/s7">
+                View learning record
+              </Link>
             </Panel>
           ) : (
             <Panel title="Next step">
@@ -1522,9 +1601,9 @@ export function StudentRecordPage() {
           <h3>{student?.profile.goal_summary || "Set your learning goal"}</h3>
           <p>Target level: {student?.profile.target_level || "—"}</p>
           <p>
-            Active stage:{" "}
-            {student?.plan?.stages[student.plan.stage_index]?.title ||
-              "Awaiting plan"}
+            {student?.plan?.status === "completed"
+              ? "All stages completed"
+              : `Active stage: ${student?.plan?.stages[student.plan.stage_index]?.title || "Awaiting plan"}`}
           </p>
           <Link className="action secondary" to="/s4">
             View plan <ArrowRight size={15} />

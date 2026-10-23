@@ -39,6 +39,9 @@ class AssessmentSession(DomainModel):
     items = models.JSONField(default=list, blank=True)  # [{item_id, prompt, answer|null, ...}]
     requested_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     focus = models.CharField(max_length=200, blank=True)
+    milestone_stage = models.ForeignKey("PlanStage", null=True, blank=True, on_delete=models.SET_NULL, related_name="assessments")
+    baseline_level = models.CharField(max_length=16, blank=True)
+    milestone_target_level = models.CharField(max_length=16, blank=True)
     max_items = models.PositiveSmallIntegerField(default=3)
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -117,6 +120,7 @@ class LearningPlan(DomainModel):
 class PlanStage(DomainModel):
     WRITERS = frozenset({"planning"})
     plan = models.ForeignKey(LearningPlan, on_delete=models.CASCADE, related_name="stages")
+    milestone_request = models.ForeignKey("governance.ServiceRequest", null=True, blank=True, on_delete=models.SET_NULL, related_name="milestone_stages")
     stage_number = models.PositiveSmallIntegerField()  # 1-based
     title = models.CharField(max_length=200)
     topics = models.JSONField(default=list, blank=True)

@@ -22,6 +22,8 @@ with tempfile.TemporaryDirectory(prefix='lingopath-browser-') as directory:
     try:
         for command in (['migrate','--noinput'], ['load_demo_data']):
             subprocess.run([sys.executable, 'manage.py', *command], cwd=backend, env=env, check=True)
+        if env.get('E2E_PROGRESS_SCENARIOS') == 'true':
+            subprocess.run([sys.executable, str(Path(__file__).with_name('progress_seed.py'))], cwd=backend, env=env, check=True)
         children.append(subprocess.Popen([sys.executable, 'manage.py','runserver','127.0.0.1:8101','--noreload'], cwd=backend, env=env))
         if env['AGENT_TASK_EXECUTION'] == 'worker':
             children.append(subprocess.Popen([sys.executable,'manage.py','run_agent_worker'], cwd=backend, env=env))

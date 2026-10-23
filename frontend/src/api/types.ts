@@ -15,6 +15,8 @@ export type Assessment = {
   requested_focus?: string | null
 }
 export type Stage = {
+  target_level?: string
+  milestone_status?: string
   title: string
   course_ref: string
   start_week: number
@@ -24,6 +26,7 @@ export type Stage = {
   status: string
 }
 export type Plan = {
+  progress_message?: string
   id: string
   version: number
   status: string
