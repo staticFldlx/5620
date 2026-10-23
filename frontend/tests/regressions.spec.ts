@@ -188,28 +188,31 @@ test("private AI draft is shown to its reviewer and teacher text preserves newli
   await context.close()
 })
 
-test("Founder pauses/resumes agents and confidence chart labels remain short", async ({
+test("Founder pauses/resumes agents with a required reason and styled buttons", async ({
   page,
 }) => {
   await login(page, "alex.hu@example.com")
+  await expect(
+    page.getByRole("button", { name: "Pause agent", exact: true }).first()
+  ).toBeDisabled()
   await page
     .getByPlaceholder("Explain why the agent should be paused or resumed")
     .fill("Regression check")
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByText("Teaching Assistant", { exact: true }) })
-  await card.getByRole("button", { name: "Pause", exact: true }).click()
+  await card.getByRole("button", { name: "Pause agent", exact: true }).click()
   await expect(
-    card.getByRole("button", { name: "Resume", exact: true })
+    card.getByRole("button", { name: "Resume agent", exact: true })
   ).toBeVisible()
-  await card.getByRole("button", { name: "Resume", exact: true }).click()
+  await card.getByRole("button", { name: "Resume agent", exact: true }).click()
   await expect(
-    card.getByRole("button", { name: "Pause", exact: true })
+    card.getByRole("button", { name: "Pause agent", exact: true })
   ).toBeVisible()
-  for (const label of await page
-    .locator(".confidence-bars span")
-    .allTextContents())
-    expect(label.length).toBeLessThanOrEqual(8)
+  await expect(
+    card.getByRole("button", { name: "Pause agent", exact: true })
+  ).toHaveClass(/action primary/)
+  await expect(card.getByText("Current status", { exact: true })).toBeVisible()
 })
 
 test("Founder polls follow-up failure, links pending approval, and sends widen_match", async ({
@@ -944,4 +947,52 @@ test("teaching preparation handles an empty teacher workspace", async ({
       exact: true,
     })
   ).toBeVisible()
+})
+
+test("Founder activity stays readable with 50 tasks and missing confidence", async ({
+  page,
+}) => {
+  await login(page, "alex.hu@example.com")
+  const data = await workspace(page)
+  data.operations!.logs = Array.from({ length: 50 }, (_, index) => ({
+    id: `internal-task-${index}`,
+    time: "2026-10-23T06:00:00Z",
+    agent_id: "consultant",
+    event: "planning.activate_plan",
+    severity: "info",
+    task_status: "completed",
+    confidence: index === 0 ? null : 0.82,
+    escalated: index === 1,
+  })) as NonNullable<typeof data.operations>["logs"]
+  await page.route("**/api/v1/workspace", (route) =>
+    route.fulfill({ json: data })
+  )
+  await page.goto("/f1")
+  await expect(page.locator(".founder-task-list li")).toHaveCount(10)
+  await expect(page.locator(".founder-task-list li").first()).toContainText(
+    "Activate learning plan"
+  )
+  await expect(page.locator(".founder-task-list li").first()).toContainText(
+    "Confidence: Not available"
+  )
+  await expect(page.locator(".founder-task-list")).not.toContainText(
+    "internal-task-"
+  )
+  await page.getByRole("button", { name: "Show all 50 tasks" }).click()
+  await expect(page.locator(".founder-task-list li")).toHaveCount(50)
+  await page.getByRole("button", { name: "Show fewer tasks" }).click()
+  await expect(page.locator(".founder-task-list li")).toHaveCount(10)
+  for (const width of [1440, 768, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth + 1
+      )
+    ).toBe(true)
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({
+    path: "/private/tmp/founder-controls-updated.png",
+    fullPage: true,
+  })
 })

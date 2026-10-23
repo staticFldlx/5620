@@ -5,6 +5,8 @@ import {
   ArrowRight,
   ClipboardCheck,
   Radar,
+  Pause,
+  Play,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react"
@@ -30,6 +32,29 @@ const time = (value: string) =>
     minute: "2-digit",
     timeZone: "Australia/Sydney",
   })
+// Translate machine labels without changing narrative summaries returned by the API.
+function readableLabel(value: string) {
+  const labels: Record<string, string> = {
+    "planning.activate_plan": "Activate learning plan",
+    "planning.generate_plan": "Generate learning plan",
+    "planning.revise_plan": "Revise learning plan",
+    "coordinator.confirm_goal": "Confirm learning goal",
+    "assessment.conduct_assessment": "Conduct assessment",
+    "tech_operations.execute_proposal": "Execute approved proposal",
+    "teaching_support.lesson_briefing": "Prepare lesson briefing",
+    healthy: "Healthy",
+    degraded: "Needs attention",
+    paused: "Paused",
+    not_implemented: "Not available",
+    pending_review: "Awaiting review",
+  }
+  if (labels[value]) return labels[value]
+  if (/^[a-z_]+(?:\.[a-z_]+)?$/.test(value)) {
+    const words = value.split(".").at(-1)!.replaceAll("_", " ")
+    return words.charAt(0).toUpperCase() + words.slice(1)
+  }
+  return value || "No recent activity"
+}
 function useOperations() {
   return useApp().workspace?.operations
 }
@@ -37,7 +62,9 @@ export function FounderOverview() {
   const ops = useOperations()
   const { run, busy } = useApp()
   const [controlNote, setControlNote] = useState("")
+  const [showAllLogs, setShowAllLogs] = useState(false)
   const logs = ops?.logs || []
+  const visibleLogs = showAllLogs ? logs : logs.slice(0, 10)
   const pending = ops?.proposals.filter((x) => x.status === "pending") || []
   return (
     <Page
@@ -72,29 +99,38 @@ export function FounderOverview() {
         />
       </div>
       <div className="board two-thirds">
-        <Panel
-          className="operations-hero"
-          title="Five roles, one connected system"
-        >
-          <p>Observable AI. Accountable decisions.</p>
+        <Panel className="operations-hero" title="Agent controls">
+          <p>
+            Pause or resume an individual agent. Existing pages and saved
+            content remain available.
+          </p>
           <label className="field-label">
             Agent decision reason
             <Textarea
+              aria-describedby="agent-control-help"
               value={controlNote}
               onChange={(event) => setControlNote(event.target.value)}
               placeholder="Explain why the agent should be paused or resumed"
             />
           </label>
+          <p id="agent-control-help">
+            Enter a reason to enable the buttons, then choose an agent below.
+            The reason is recorded with that action; it is not a command to all
+            agents.
+          </p>
           <div className="agent-grid">
             {ops?.agents.map((agent) => (
               <div className="agent-card" key={agent.id}>
                 <span className="agent-pulse" />
                 <strong>{agent.name}</strong>
-                <small>{agent.latest_task.output_summary}</small>
+                <small>{readableLabel(agent.latest_task.output_summary)}</small>
+                <span className="agent-status-label">Current status</span>
                 <Pill tone={agent.status === "healthy" ? "good" : "warn"}>
-                  {agent.status}
+                  {readableLabel(agent.status)}
                 </Pill>
                 <Button
+                  className="action primary agent-control-button"
+                  aria-describedby="agent-control-help"
                   disabled={
                     busy ||
                     !controlNote.trim() ||
@@ -112,7 +148,12 @@ export function FounderOverview() {
                     )
                   }
                 >
-                  {agent.status === "paused" ? "Resume" : "Pause"}
+                  {agent.status === "paused" ? (
+                    <Play size={15} />
+                  ) : (
+                    <Pause size={15} />
+                  )}
+                  {agent.status === "paused" ? "Resume agent" : "Pause agent"}
                 </Button>
               </div>
             ))}
@@ -139,39 +180,64 @@ export function FounderOverview() {
               />
             ))}
         </Panel>
-        <Panel title="Recent confidence & escalations">
-          <div className="confidence-bars">
-            {logs.map((log) => (
-              <div key={log.id}>
-                <span title={`${log.event} · ${log.id}`}>
-                  {log.id.slice(0, 8)}
-                </span>
-                <i
-                  style={{
-                    height: `${Math.round((log.confidence ?? 0) * 100)}%`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
+        <Panel title="Recent agent activity" className="founder-activity">
           <p>
-            Escalations in sample: {logs.filter((x) => x.escalated).length} /{" "}
-            {logs.length}
+            Escalated tasks in this sample:{" "}
+            {logs.filter((log) => log.escalated).length} of {logs.length}.
+            Confidence is shown only when provided.
           </p>
+          {logs.length ? (
+            <>
+              <ol className="founder-task-list">
+                {visibleLogs.map((log) => (
+                  <li key={log.id}>
+                    <strong>
+                      {ops?.agents.find((agent) => agent.id === log.agent_id)
+                        ?.name || readableLabel(log.agent_id)}
+                    </strong>
+                    <p>{readableLabel(log.event)}</p>
+                    <div className="founder-task-meta">
+                      <span>Status: {readableLabel(log.task_status)}</span>
+                      <span>
+                        Confidence:{" "}
+                        {log.confidence == null
+                          ? "Not available"
+                          : `${Math.round(log.confidence * 100)}%`}
+                      </span>
+                      {log.escalated && <Pill tone="warn">Escalated</Pill>}
+                      <time dateTime={log.time}>{time(log.time)}</time>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {logs.length > 10 && (
+                <Button
+                  className="action secondary"
+                  onClick={() => setShowAllLogs(!showAllLogs)}
+                >
+                  {showAllLogs
+                    ? "Show fewer tasks"
+                    : `Show all ${logs.length} tasks`}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Empty>No recent agent activity.</Empty>
+          )}
         </Panel>
         <Panel title="Latest agent outputs">
-          {ops?.agents.slice(0, 4).map((agent) => (
+          {ops?.agents.map((agent) => (
             <Row
               key={agent.id}
               title={agent.name}
-              detail={agent.latest_task.output_summary}
+              detail={readableLabel(agent.latest_task.output_summary)}
               right={
                 <Pill
                   tone={
                     agent.latest_task.status === "completed" ? "good" : "warn"
                   }
                 >
-                  {agent.latest_task.status}
+                  {readableLabel(agent.latest_task.status)}
                 </Pill>
               }
             />

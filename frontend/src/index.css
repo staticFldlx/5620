@@ -1701,3 +1701,46 @@ select {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+
+/* Founder controls and activity: keep long task summaries inside their panels. */
+.operations-hero .agent-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+}
+.operations-hero .agent-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.agent-status-label {
+  font-size: 10px;
+  color: var(--muted);
+}
+.agent-control-button {
+  width: 100%;
+  margin-top: 6px;
+  white-space: normal;
+  height: auto;
+}
+.founder-activity {
+  min-width: 0;
+}
+.founder-task-list {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+}
+.founder-task-list li {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.founder-task-list p {
+  margin: 6px 0;
+}
+.founder-task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 11px;
+}
