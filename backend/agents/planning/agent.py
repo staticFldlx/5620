@@ -469,16 +469,34 @@ class PlanningAgent(AIAgent):
         profile = learning.profile_for(student)
         if data.reply:
             return self._book_slot(task, data, student)
-        try:
-            start = parse_slot(data.input, profile)
-            end = start + (lesson.ends_at - lesson.starts_at)
-            services.check_lesson_slot(teacher=lesson.teacher, student=student, starts_at=start, ends_at=end, exclude=lesson)
-        except DomainError:
-            return self._alternatives(lesson.teacher, student, profile, lesson=lesson)
-        slot = slot_view(start, end)
+        teacher_timezone = getattr(getattr(lesson.teacher, "teacher_profile", None), "timezone", "Australia/Sydney")
+        availability = [{"day": w.day, "start": w.start_time.strftime("%H:%M"),
+                         "end": w.end_time.strftime("%H:%M")} for w in learning.teacher_windows(lesson.teacher)]
+        requested = data.input.get("slot") or data.input.get("requested_time")
+        accepted = False
+        message = "Choose an available lesson time below."
+        slots = []
+        if requested:
+            try:
+                start = parse_slot(data.input, profile)
+                end = start + (lesson.ends_at - lesson.starts_at)
+                services.check_lesson_slot(teacher=lesson.teacher, student=student, starts_at=start, ends_at=end, exclude=lesson)
+                slots = [slot_view(start, end)]
+                accepted = True
+                message = "Your requested time is available. Confirm below to move the lesson."
+            except DomainError as exc:
+                message = str(exc)
+            except (ValueError, TypeError):
+                message = "Enter a valid date and time, or choose an available time below."
+        if not accepted:
+            slots = self._slots(lesson.teacher, student, profile, exclude=lesson, respect_student=False)
+            slots = [s for s in slots if datetime.fromisoformat(s["starts_at"]) != lesson.starts_at]
+        if not slots:
+            message += " No alternative times are available in the next 28 days. Contact your teacher to adjust availability."
         return AgentResult(AgentStatus.NEEDS_INPUT, {"phase": "student_choose_slot", "result": {
-            "lesson_id": str(lesson.pk), "proposed_slot": slot["starts_at"], "slots": [slot],
-            "question": "Confirm this lesson time.", "message": "Confirm the proposed time to move the lesson.",
+            "lesson_id": str(lesson.pk), "proposed_slot": slots[0]["starts_at"] if accepted else None,
+            "slots": slots, "requested_available": accepted, "message": message,
+            "teacher_availability": availability, "teacher_timezone": teacher_timezone,
         }})
 
     def _book_slot(self, task, data, student):

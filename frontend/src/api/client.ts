@@ -146,6 +146,8 @@ export const api = {
         )
       ).data
     ),
+  withdrawPlanRevision: async (id: string) =>
+    (await http.post<{ withdrawn: boolean }>(`/plans/${id}/withdraw`)).data,
   getReview: async (id: string) =>
     (await http.get<ReviewDetail>(`/reviews/${id}`)).data,
   decideReview: async (

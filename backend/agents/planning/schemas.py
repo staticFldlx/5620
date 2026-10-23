@@ -127,6 +127,9 @@ class SlotResult(PlanningSchema):
 
 
 class SlotBusinessResult(PlanningSchema):
+    requested_available: bool | None = None
+    teacher_availability: list[dict[str, str]] | None = None
+    teacher_timezone: str | None = None
     lesson_id: str
     slots: list[SlotResult]
     proposed_slot: str | None = None

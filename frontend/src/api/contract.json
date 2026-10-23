@@ -4,7 +4,7 @@
   "report": "ELEC5620 Stage One Report(1).pdf",
   "scope": "AR01–AR13 and UC01–UC10; authentication allowed by user",
   "api_prefix": "/api/v1",
-  "operation_count": 20,
+  "operation_count": 21,
   "operations": [
     {
       "method": "POST",
@@ -145,6 +145,13 @@
       "requirement": "受控更新与恢复的 Founder 审批",
       "request": "{action:approve|reject,note?}; reject requires reason; approval is version-bound",
       "response": "Same proposal + audit entries; Technical Manager executes only the approved change, verifies it, then closes the related incident"
+    },
+    {
+      "method": "POST",
+      "path": "/plans/{id}/withdraw",
+      "requirement": "Student withdrawal of an unapproved plan revision; current active plan remains unchanged",
+      "request": "Student owner only; revision must be student-requested and awaiting approval",
+      "response": "{withdrawn:true}; 409 if already reviewed or withdrawn; workspace pending_plan.revision_request includes reason, submitted_at, can_withdraw"
     }
   ],
   "request_actions": {
@@ -276,9 +283,9 @@
       "actor": "Student",
       "input": [
         "lesson_id",
-        "requested_time"
+        "slot? (local date/time in student timezone) or requested_time? (ISO timestamp)"
       ],
-      "result": "compatible proposed slot + rationale; existing booking stays until confirmation",
+      "result": "requested_available + message + available slots + teacher availability and timezone; empty input searches alternatives",
       "requirements": [
         "AR03",
         "UC03",
@@ -567,5 +574,9 @@
     "Approval, execution and verification are separate auditable events; failed verification keeps the incident open.",
     "All roles and record scopes are enforced by the backend, independent of visual page navigation."
   ],
-  "implementation_note": "20 method/path operations expose only required workflows. The shared Coordinator route still contains 15 required business actions; grouping routes does not eliminate their backend work. UI richness does not add fields, tables or workflows to these records."
+  "implementation_note": "20 method/path operations expose only required workflows. The shared Coordinator route still contains 15 required business actions; grouping routes does not eliminate their backend work. UI richness does not add fields, tables or workflows to these records.",
+  "slot_check_behavior": {
+    "reschedule": "lesson_id required; slot optional. Empty time requests available alternatives. Result includes requested_available, slots, message, teacher_availability, teacher_timezone.",
+    "confirm_slot": "Send lesson_id, slot_request_id and the selected slot_id. Backend rechecks conflicts before moving the lesson."
+  }
 }

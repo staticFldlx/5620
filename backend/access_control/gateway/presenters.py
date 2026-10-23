@@ -17,6 +17,7 @@ from domain.learning import selectors as learning
 from domain.learning import views as lviews
 from infrastructure import retrieval
 from orchestration.task_queue import registry
+from orchestration.escalation.plan_revisions import revision_details
 
 from . import lookups
 
@@ -35,7 +36,10 @@ def _plan_review_id(plan: Any) -> str:
 
 
 def plan_record(plan: Any) -> dict | None:
-    return lviews.plan_view(plan, review_id=_plan_review_id(plan)) if plan else None
+    if not plan:
+        return None
+    return {**lviews.plan_view(plan, review_id=_plan_review_id(plan)),
+            "revision_request": revision_details(plan)}
 
 
 def student_record(student: Any) -> dict:

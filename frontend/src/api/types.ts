@@ -34,6 +34,11 @@ export type Plan = {
   reason: string
   review_id: string
   approved_at: string | null
+  revision_request?: {
+    reason: string
+    submitted_at: string
+    can_withdraw: boolean
+  } | null
 }
 export type Profile = {
   goal_text: string

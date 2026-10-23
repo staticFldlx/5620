@@ -72,6 +72,12 @@ class StageRecord(Record):
     status: str
 
 
+class RevisionRequestRecord(Record):
+    reason: str
+    submitted_at: str
+    can_withdraw: bool
+
+
 class PlanRecord(Record):
     id: str
     version: int
@@ -83,6 +89,7 @@ class PlanRecord(Record):
     reason: str
     review_id: str
     approved_at: str | None
+    revision_request: RevisionRequestRecord | None = None
 
 
 class LessonRecord(Record):
@@ -450,11 +457,6 @@ class RescheduleInput(LessonRefInput):
     slot: str | None = None  # frontend: local "YYYY-MM-DDTHH:mm"
     requested_time: str | None = None  # contract.json: ISO with offset
 
-    @model_validator(mode="after")
-    def needs_time(self):
-        if not (self.slot or self.requested_time):
-            raise ValueError("slot or requested_time is required")
-        return self
 
 
 class ConfirmSlotInput(Record):

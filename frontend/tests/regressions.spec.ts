@@ -461,16 +461,14 @@ test("older corrected plans do not block revisions but newer pending plans do", 
     status: "pending_review",
   }
   await page.reload()
-  await reason.fill("Another change")
+  await expect(reason).toHaveCount(0)
   await expect(
     page.getByText("Version 3 is pending teacher review.", { exact: true })
   ).toBeVisible()
   await expect(
-    page.getByText(
-      /Version 3 must be reviewed before you request another revision/
-    )
+    page.getByRole("heading", { name: "Your change request", exact: true })
   ).toBeVisible()
-  await expect(submit).toBeDisabled()
+  await expect(submit).toHaveCount(0)
 })
 
 test("student can revise again after teacher corrects and approves a plan", async ({
@@ -546,12 +544,16 @@ test("student can revise again after teacher corrects and approves a plan", asyn
     page.getByText("Version 3 is pending teacher review.", { exact: true })
   ).toBeVisible()
   expect((await workspace(page)).students![studentId].plan?.version).toBe(2)
-  await page
-    .getByPlaceholder("What changed, and why?")
-    .fill("Duplicate request")
+  await expect(page.getByPlaceholder("What changed, and why?")).toHaveCount(0)
   await expect(
-    page.getByRole("button", { name: "Request revision", exact: true })
-  ).toBeDisabled()
+    page.getByText(
+      "Add more reading practice within my current weekly hours.",
+      { exact: true }
+    )
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "Withdraw request", exact: true })
+  ).toBeVisible()
 
   await login(page, "emily.walker@example.com")
   await selectPendingPlanReview()
@@ -584,4 +586,362 @@ test("student can revise again after teacher corrects and approves a plan", asyn
   await expect(
     page.getByRole("button", { name: "Request revision", exact: true })
   ).toBeEnabled()
+})
+
+test("student sees persisted revision details, withdraws, and submits a new version", async ({
+  page,
+}) => {
+  await login(page, "emily.walker@example.com")
+  const teacher = await workspace(page)
+  const sophiaId = Object.keys(teacher.students!).find(
+    (id) => teacher.students![id].name === "Sophia Chen"
+  )!
+  if (teacher.students![sophiaId].pending_plan) {
+    const draft = teacher.students![sophiaId].pending_plan!
+    await page.goto("/t4")
+    await page.getByTestId(`review-${draft.review_id}`).click()
+    await page
+      .getByPlaceholder("Record the reason for your decision")
+      .fill("Approve initial plan for withdrawal regression")
+    await page
+      .getByRole("button", { name: "Approve & activate", exact: true })
+      .click()
+    await expect
+      .poll(async () => (await workspace(page)).students![sophiaId].plan?.id)
+      .toBe(draft.id)
+  }
+  await login(page, "sophia.chen@example.com")
+  // Earlier tests booked Sophia's narrow original window. Give this scenario
+  // broader availability through the same goal flow a student uses.
+  await page.goto("/s2")
+  await page
+    .getByPlaceholder("Describe your goal and needs")
+    .fill(
+      "I want workplace reading and writing practice for my career. I can attend Tuesday Thursday and Saturday 09:00-21:00 Sydney time."
+    )
+  await page.getByRole("button", { name: "Organise my goal" }).click()
+  await expect(page.getByRole("button", { name: "Confirm goal" })).toBeEnabled()
+  await page.getByRole("button", { name: "Confirm goal" }).click()
+  await expect(page.locator(".toast")).not.toContainText(
+    "Processing your request"
+  )
+  const before = await workspace(page)
+  const studentId = before.user.id
+  const active = before.students![studentId].plan!
+  await page.goto("/s4")
+  const reason = "Please add guided reading while keeping my weekly hours."
+  await page.getByPlaceholder("What changed, and why?").fill(reason)
+  await page
+    .getByRole("button", { name: "Request revision", exact: true })
+    .click()
+  await expect(
+    page.getByRole("heading", { name: "Your change request", exact: true })
+  ).toBeVisible()
+  const pending = (await workspace(page)).students![studentId].pending_plan!
+  await page.reload()
+  await expect(page.getByText(reason, { exact: true })).toBeVisible()
+  await page
+    .locator("section.panel")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Your change request",
+        exact: true,
+      }),
+    })
+    .screenshot({ path: test.info().outputPath("pending-revision.png") })
+  await expect(page.getByPlaceholder("What changed, and why?")).toHaveCount(0)
+  await page
+    .getByText(`View proposed plan · Version ${pending.version}`, {
+      exact: true,
+    })
+    .click()
+  await expect(
+    page.getByText(`Proposed weekly hours: ${pending.weekly_hours}`, {
+      exact: true,
+    })
+  ).toBeVisible()
+  await page
+    .getByRole("button", { name: "Withdraw request", exact: true })
+    .click()
+  await page.getByRole("button", { name: "Keep request", exact: true }).click()
+  expect((await workspace(page)).students![studentId].pending_plan?.id).toBe(
+    pending.id
+  )
+  await page
+    .getByRole("button", { name: "Withdraw request", exact: true })
+    .click()
+  await page
+    .getByRole("button", { name: "Confirm withdrawal", exact: true })
+    .click()
+  await expect(page.getByPlaceholder("What changed, and why?")).toBeVisible()
+  await page.reload()
+  const after = (await workspace(page)).students![studentId]
+  expect(after.pending_plan).toBeNull()
+  expect(after.plan?.id).toBe(active.id)
+  await login(page, "emily.walker@example.com")
+  const closed = (await workspace(page)).reviews!.find(
+    (review) => review.id === pending.review_id
+  )!
+  expect(closed.status).toBe("decided")
+  expect(closed.decision).toBe("withdraw")
+  await page.goto("/t4")
+  await page.getByTestId(`review-${pending.review_id}`).click()
+  await expect(
+    page.getByRole("button", { name: "Approve & activate", exact: true })
+  ).toHaveCount(0)
+  await login(page, "sophia.chen@example.com")
+  await page.goto("/s4")
+  await page
+    .getByPlaceholder("What changed, and why?")
+    .fill("A replacement request after withdrawal.")
+  await page
+    .getByRole("button", { name: "Request revision", exact: true })
+    .click()
+  await expect(
+    page.getByRole("heading", { name: "Your change request", exact: true })
+  ).toBeVisible()
+  expect(
+    (await workspace(page)).students![studentId].pending_plan!.version
+  ).toBe(pending.version + 1)
+})
+
+test("lesson slot check works without input and confirms only the checked selection", async ({
+  page,
+}) => {
+  await login(page, "sophia.chen@example.com")
+  const initial = await workspace(page)
+  const lesson = initial.lessons!.find((item) => item.status === "confirmed")!
+  expect(lesson).toBeTruthy()
+  const lessonIndex = initial.lessons!.findIndex(
+    (item) => item.id === lesson.id
+  )
+  const otherIndex = initial.lessons!.findIndex(
+    (item) => item.id !== lesson.id && item.status === "confirmed"
+  )
+  expect(otherIndex).toBeGreaterThanOrEqual(0)
+  await page.goto("/s5")
+  const check = page.getByRole("button", { name: "Check slot", exact: true })
+  const confirm = page.getByRole("button", {
+    name: "Confirm time",
+    exact: true,
+  })
+  const input = page.getByLabel(/Proposed slot/)
+  await expect(check).toBeEnabled()
+  await expect(confirm).toBeDisabled()
+  await check.click()
+  const options = page.getByRole("region", { name: "Time check result" })
+  await expect(options.getByRole("radio").first()).toBeVisible()
+  await expect(confirm).toBeDisabled()
+  const offered = await options.getByRole("radio").first().getAttribute("value")
+  await input.fill(offered!.slice(0, 16))
+  await expect(options).toHaveCount(0)
+  await check.click()
+  await expect(options).toContainText("Your requested time is available")
+  await expect(confirm).toBeEnabled()
+  await page.locator("button.list-row").nth(otherIndex).click()
+  await expect(confirm).toBeDisabled()
+  await expect(options).toHaveCount(0)
+  await page.locator("button.list-row").nth(lessonIndex).click()
+  await input.fill("2027-01-03T02:00")
+  await check.click()
+  await expect(options).toContainText("outside the teacher")
+  await expect(confirm).toBeDisabled()
+  await expect(options).toContainText("Teacher availability")
+  const choice = options.getByRole("radio").last()
+  const chosen = await choice.getAttribute("value")
+  await choice.check()
+  await expect(confirm).toBeEnabled()
+  await options.screenshot({
+    path: test.info().outputPath("slot-alternatives.png"),
+  })
+  await confirm.click()
+  await expect
+    .poll(async () =>
+      new Date(
+        (await workspace(page)).lessons!.find((item) => item.id === lesson.id)!
+          .starts_at
+      ).getTime()
+    )
+    .toBe(new Date(chosen!).getTime())
+  await page.reload()
+  expect(
+    new Date(
+      (await workspace(page)).lessons!.find((item) => item.id === lesson.id)!
+        .starts_at
+    ).getTime()
+  ).toBe(new Date(chosen!).getTime())
+})
+
+test("teaching preparation scopes briefing and materials to the selected student and lesson", async ({
+  page,
+}) => {
+  await login(page, "emily.walker@example.com")
+  const data = await workspace(page)
+  const ivyId = Object.keys(data.students!).find(
+    (id) => data.students![id].name === "Ivy Lin"
+  )!
+  const sophiaId = Object.keys(data.students!).find(
+    (id) => data.students![id].name === "Sophia Chen"
+  )!
+  const ivyLessons = data.lessons!.filter((item) => item.student_id === ivyId)
+  const lesson = ivyLessons.find((item) =>
+    data.materials!.some((material) => material.lesson_id === item.id)
+  )!
+  const other = ivyLessons.find((item) => item.id !== lesson.id)!
+  expect(lesson).toBeTruthy()
+  expect(other).toBeTruthy()
+  await page.goto("/t5")
+  const studentSelect = page.getByLabel("Student", { exact: true })
+  const lessonSelect = page.getByLabel("Lesson", { exact: true })
+  const materialSelect = page.getByLabel("Material", { exact: true })
+  await studentSelect.selectOption(ivyId)
+  expect(
+    await lessonSelect
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value)
+      )
+  ).toEqual(ivyLessons.map((item) => item.id))
+  await lessonSelect.selectOption(lesson.id)
+  const expectedMaterials = data.materials!.filter(
+    (item) => item.lesson_id === lesson.id
+  )
+  expect(
+    await materialSelect
+      .locator("option")
+      .evaluateAll((options) =>
+        options.map((option) => (option as HTMLOptionElement).value)
+      )
+  ).toEqual(expectedMaterials.map((item) => item.id))
+  await page
+    .getByRole("button", { name: "Prepare briefing", exact: true })
+    .click()
+  await expect(
+    page.getByRole("region", { name: "Generated lesson briefing" })
+  ).toBeVisible()
+  await page
+    .getByLabel("Material content", { exact: true })
+    .fill("Unsaved edit that must never appear on another lesson")
+  await lessonSelect.selectOption(other.id)
+  await expect(
+    page.getByRole("region", { name: "Generated lesson briefing" })
+  ).toHaveCount(0)
+  const otherMaterials = data.materials!.filter(
+    (item) => item.lesson_id === other.id
+  )
+  if (!otherMaterials.length) {
+    await expect(
+      page.getByText(
+        "No materials for this lesson yet. Generate a draft below.",
+        { exact: true }
+      )
+    ).toBeVisible()
+    await expect(
+      page.getByRole("button", { name: "Approve material", exact: true })
+    ).toHaveCount(0)
+  } else {
+    await expect(
+      page.getByLabel("Material content", { exact: true })
+    ).not.toHaveValue("Unsaved edit that must never appear on another lesson")
+  }
+  await studentSelect.selectOption(sophiaId)
+  const sophiaLessons = data.lessons!.filter(
+    (item) => item.student_id === sophiaId
+  )
+  if (!sophiaLessons.length) {
+    await expect(lessonSelect).toBeDisabled()
+    await expect(
+      page.getByRole("button", { name: "Generate draft", exact: true })
+    ).toHaveCount(0)
+  } else {
+    expect(
+      await lessonSelect
+        .locator("option")
+        .evaluateAll((options) =>
+          options.map((option) => (option as HTMLOptionElement).value)
+        )
+    ).toEqual(sophiaLessons.map((item) => item.id))
+  }
+  await studentSelect.selectOption(ivyId)
+  await lessonSelect.selectOption(lesson.id)
+  await expect(
+    page.getByLabel("Material content", { exact: true })
+  ).not.toHaveValue("Unsaved edit that must never appear on another lesson")
+  await page
+    .getByPlaceholder("Material title")
+    .fill("Preparation isolation draft")
+  await page
+    .getByRole("button", { name: "Generate draft", exact: true })
+    .click()
+  await expect(materialSelect.locator("option:checked")).toHaveText(
+    "Preparation isolation draft · draft"
+  )
+  const generatedId = await materialSelect.inputValue()
+  const generated = (await workspace(page)).materials!.find(
+    (item) => item.id === generatedId
+  )!
+  expect(generated.lesson_id).toBe(lesson.id)
+  await page
+    .getByLabel("Material content", { exact: true })
+    .fill("Teacher-approved preparation content for this lesson only.")
+  await page.getByRole("button", { name: "Save draft", exact: true }).click()
+  await expect
+    .poll(
+      async () =>
+        (await workspace(page)).materials!.find(
+          (item) => item.id === generatedId
+        )!.content
+    )
+    .toBe("Teacher-approved preparation content for this lesson only.")
+  await page
+    .getByRole("button", { name: "Approve material", exact: true })
+    .click()
+  await expect(materialSelect.locator("option:checked")).toHaveText(
+    "Preparation isolation draft · approved"
+  )
+  await page.screenshot({
+    path: test.info().outputPath("teaching-preparation.png"),
+    fullPage: true,
+  })
+  await page.reload()
+  await studentSelect.selectOption(ivyId)
+  await lessonSelect.selectOption(lesson.id)
+  await materialSelect.selectOption(generatedId)
+  await expect(
+    page.getByLabel("Material content", { exact: true })
+  ).toHaveValue("Teacher-approved preparation content for this lesson only.")
+  await login(page, "ivy.lin@example.com")
+  expect(
+    (await workspace(page)).materials!.some((item) => item.id === generatedId)
+  ).toBe(true)
+  await login(page, "sophia.chen@example.com")
+  expect(
+    (await workspace(page)).materials!.some((item) => item.id === generatedId)
+  ).toBe(false)
+})
+
+test("teaching preparation handles an empty teacher workspace", async ({
+  page,
+}) => {
+  await login(page, "emily.walker@example.com")
+  const data = await workspace(page)
+  await page.route("**/api/v1/workspace", (route) =>
+    route.fulfill({
+      json: { ...data, students: {}, lessons: [], materials: [] },
+    })
+  )
+  await page.goto("/t5")
+  await expect(page.getByLabel("Student", { exact: true })).toBeDisabled()
+  await expect(page.getByLabel("Lesson", { exact: true })).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Prepare briefing", exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("button", { name: "Generate draft", exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.getByText("No lessons are available for this student yet.", {
+      exact: true,
+    })
+  ).toBeVisible()
 })

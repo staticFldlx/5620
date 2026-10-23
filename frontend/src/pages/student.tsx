@@ -9,15 +9,16 @@ import {
   ClipboardCheck,
   Clock3,
   MessageSquareText,
+  RefreshCw,
   Sparkles,
   Target,
 } from "lucide-react"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
 import type {
-  Assessment,
   AssessmentSession,
   Interaction,
+  Lesson,
   Material,
   RequestEnvelope,
   StudentRecord,
@@ -676,9 +677,14 @@ export function StudentAssessments() {
   }, [sessionId, awaitingReview, refresh])
   const assessments = useMemo(
     () =>
-      (student?.assessments || []).filter(
-        (x) => filter === "all" || x.status === filter
-      ),
+      [...(student?.assessments || [])]
+        .sort(
+          (a, b) =>
+            (Date.parse(a.created_at) || 0) - (Date.parse(b.created_at) || 0) ||
+            a.id.localeCompare(b.id)
+        )
+        .map((item, index) => ({ ...item, displayNumber: index + 1 }))
+        .filter((item) => filter === "all" || item.status === filter),
     [student?.assessments, filter]
   )
   async function start() {
@@ -817,12 +823,14 @@ export function StudentAssessments() {
                     : "Refresh to check the latest assessment status."}
               </p>
               <Button
+                className="action secondary"
                 disabled={busy}
                 onClick={async () => {
                   const latest = await run(() => api.getAssessment(session.id))
                   if (latest) setSession(latest)
                 }}
               >
+                <RefreshCw size={16} aria-hidden="true" />
                 Refresh result
               </Button>
             </>
@@ -843,11 +851,18 @@ export function StudentAssessments() {
           }
         >
           {assessments.length ? (
-            assessments.map((item: Assessment) => (
+            assessments.map((item) => (
               <div className="record-card" key={item.id}>
                 <div>
                   <strong>
-                    {item.kind} assessment · {item.id}
+                    Assessment {item.displayNumber} ·{" "}
+                    {item.kind === "initial"
+                      ? "Initial"
+                      : item.kind === "milestone"
+                        ? "Milestone"
+                        : item.kind === "directed"
+                          ? "Teacher-directed"
+                          : item.kind.replaceAll("_", " ")}
                   </strong>
                   <Pill tone={item.status === "confirmed" ? "good" : "warn"}>
                     {item.status.replace("_", " ")}
@@ -874,6 +889,8 @@ export function StudentPlan() {
   const [reason, setReason] = useState("")
   const plan = student?.plan
   const displayPlan = plan || student?.pending_plan
+  const pending = student?.pending_plan
+  const [withdrawId, setWithdrawId] = useState<string | null>(null)
   return (
     <Page
       eyebrow="PERSONALISED PLAN"
@@ -951,12 +968,100 @@ export function StudentPlan() {
               </span>
             </div>
           </Panel>
-          {plan ? (
+          {plan && pending ? (
+            <Panel title="Your change request">
+              <Pill tone="warn">
+                Awaiting teacher review · Version {pending.version}
+              </Pill>
+              <p>
+                Version {plan.version} remains active. You can submit another
+                request after this review
+                {pending.revision_request?.can_withdraw
+                  ? " or withdraw your request below"
+                  : ""}
+                .
+              </p>
+              <h3>Requested change</h3>
+              <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                {pending.revision_request?.reason ||
+                  "Your teacher is reviewing this proposed update. See the proposed plan below."}
+              </p>
+              {pending.revision_request?.submitted_at && (
+                <p>
+                  Submitted{" "}
+                  {new Date(
+                    pending.revision_request.submitted_at
+                  ).toLocaleString()}
+                </p>
+              )}
+              <details>
+                <summary>
+                  View proposed plan · Version {pending.version}
+                </summary>
+                <p>Proposed weekly hours: {pending.weekly_hours}</p>
+                <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                  {pending.reason}
+                </p>
+                {pending.stages.map((stage, index) => (
+                  <div className="record-card" key={index}>
+                    <strong>
+                      {index + 1}. {stage.title}
+                    </strong>
+                    <p>
+                      Weeks {stage.start_week}–{stage.end_week} ·{" "}
+                      {stage.topics.join(" · ")}
+                    </p>
+                    <p>Milestone: {stage.milestone}</p>
+                  </div>
+                ))}
+              </details>
+              {pending.revision_request?.can_withdraw &&
+                (withdrawId === pending.id ? (
+                  <div>
+                    <p>
+                      Withdraw this request? Your current plan will stay active.
+                    </p>
+                    <div className="button-row">
+                      <Button
+                        className="action secondary"
+                        disabled={busy}
+                        onClick={() => setWithdrawId(null)}
+                      >
+                        Keep request
+                      </Button>
+                      <Button
+                        className="action primary"
+                        disabled={busy}
+                        onClick={async () => {
+                          const result = await run(
+                            () => api.withdrawPlanRevision(pending.id),
+                            "Request withdrawn. Your current plan is unchanged."
+                          )
+                          if (result) {
+                            setWithdrawId(null)
+                            setReason("")
+                          }
+                        }}
+                      >
+                        Confirm withdrawal
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    className="action secondary"
+                    disabled={busy}
+                    onClick={() => setWithdrawId(pending.id)}
+                  >
+                    Withdraw request
+                  </Button>
+                ))}
+            </Panel>
+          ) : plan ? (
             <Panel title="Request a change">
               <p>
-                {student?.pending_plan
-                  ? `Version ${student.pending_plan.version} must be reviewed before you request another revision. Your current plan remains active.`
-                  : "Tell your teacher what needs adjusting. Approval is required before a new plan becomes active."}
+                Tell your teacher what needs adjusting. Approval is required
+                before a new plan becomes active.
               </p>
               <Textarea
                 value={reason}
@@ -1001,14 +1106,162 @@ export function StudentPlan() {
     </Page>
   )
 }
-export function StudentLessons() {
-  const { lessons, materials } = useStudent()
+type CheckedTime = { id: string; starts_at: string; ends_at: string }
+type SlotCheck = {
+  requestId: string
+  slots: CheckedTime[]
+  message: string
+  requested_available?: boolean
+  teacher_availability?: { day: string; start: string; end: string }[]
+  teacher_timezone?: string
+}
+function LessonTimeChange({
+  lesson,
+  timezone,
+}: {
+  lesson: Lesson
+  timezone: string
+}) {
   const { run, busy } = useApp()
+  const [slot, setSlot] = useState("")
+  const [check, setCheck] = useState<SlotCheck | null>(null)
+  const [chosen, setChosen] = useState("")
+  const formatTime = (value: string) =>
+    new Intl.DateTimeFormat("en-AU", {
+      timeZone: timezone,
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(value))
+  return (
+    <>
+      <h3>Change this time</h3>
+      <label className="field-label">
+        Proposed slot (optional · {timezone})
+        <Input
+          type="datetime-local"
+          value={slot}
+          disabled={busy}
+          onChange={(e) => {
+            setSlot(e.target.value)
+            setCheck(null)
+            setChosen("")
+          }}
+        />
+      </label>
+      <p>
+        Leave the time blank and click Check slot to find available times. Your
+        lesson stays unchanged until you confirm.
+      </p>
+      <div className="button-row">
+        <Button
+          className="action secondary"
+          disabled={busy}
+          onClick={async () => {
+            setCheck(null)
+            setChosen("")
+            const response = await run(
+              () =>
+                api.request("reschedule", {
+                  lesson_id: lesson.id,
+                  ...(slot ? { slot } : {}),
+                }),
+              "Time check complete. Review the available times below."
+            )
+            if (response?.status === "awaiting_confirmation") {
+              const result = response.result as unknown as Omit<
+                SlotCheck,
+                "requestId"
+              >
+              const options = result.slots || []
+              setCheck({ ...result, slots: options, requestId: response.id })
+              if (result.requested_available && options.length === 1)
+                setChosen(options[0].id)
+            }
+          }}
+        >
+          Check slot
+        </Button>
+        <Button
+          className="action primary"
+          disabled={busy || !check || !chosen}
+          onClick={async () => {
+            if (!check || !chosen) return
+            const response = await run(
+              () =>
+                api.request("confirm_slot", {
+                  lesson_id: lesson.id,
+                  slot_request_id: check.requestId,
+                  slot_id: chosen,
+                }),
+              "Lesson time updated."
+            )
+            // A failed final check requires a fresh availability check; never reuse a stale selection.
+            if (!response || response.status === "completed") {
+              setCheck(null)
+              setChosen("")
+            }
+          }}
+        >
+          Confirm time
+        </Button>
+      </div>
+      {check && (
+        <section aria-label="Time check result" aria-live="polite">
+          <p>{check.message}</p>
+          {!!check.teacher_availability?.length && (
+            <p>
+              Teacher availability ({check.teacher_timezone}):{" "}
+              {check.teacher_availability
+                .map((w) => `${w.day} ${w.start}–${w.end}`)
+                .join("; ")}
+            </p>
+          )}
+          {check.slots.length > 0 && (
+            <fieldset>
+              <legend>
+                {check.requested_available
+                  ? "Available time"
+                  : "Choose an alternative time"}{" "}
+                ({timezone})
+              </legend>
+              {check.slots.map((option) => (
+                <label
+                  className="record-card"
+                  key={option.id}
+                  style={{ display: "flex", alignItems: "center", gap: 12 }}
+                >
+                  <input
+                    type="radio"
+                    style={{ width: 18, height: 18, flexShrink: 0, margin: 0 }}
+                    name={`lesson-time-${lesson.id}`}
+                    value={option.id}
+                    checked={chosen === option.id}
+                    disabled={busy}
+                    onChange={() => setChosen(option.id)}
+                  />
+                  <span>
+                    {formatTime(option.starts_at)} –{" "}
+                    {formatTime(option.ends_at)}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
+        </section>
+      )}
+    </>
+  )
+}
+
+export function StudentLessons() {
+  const { lessons, materials, student } = useStudent()
   const [selected, setSelected] = useState(
     lessons.find((x) => x.status === "confirmed")?.id || lessons[0]?.id || ""
   )
-  const [slot, setSlot] = useState("")
-  const [proposedSlot, setProposedSlot] = useState("")
   const current = lessons.find((x) => x.id === selected) || lessons[0]
   return (
     <Page
@@ -1058,56 +1311,11 @@ export function StudentLessons() {
               {current.status === "confirmed" && (
                 <>
                   <div className="divider" />
-                  <h3>Change this time</h3>
-                  <label className="field-label">
-                    Proposed slot
-                    <Input
-                      type="datetime-local"
-                      value={slot}
-                      onChange={(e) => {
-                        setSlot(e.target.value)
-                        setProposedSlot("")
-                      }}
-                    />
-                  </label>
-                  <div className="button-row">
-                    <Button
-                      className="action secondary"
-                      disabled={busy || !slot}
-                      onClick={async () => {
-                        const result = await run(
-                          () =>
-                            api.request(
-                              "reschedule",
-                              { lesson_id: current.id, slot },
-                              undefined,
-                              current.id
-                            ),
-                          "Proposed time is ready for confirmation."
-                        )
-                        if (result) setProposedSlot(slot)
-                      }}
-                    >
-                      Check slot
-                    </Button>
-                    <Button
-                      className="action primary"
-                      disabled={busy || !slot || proposedSlot !== slot}
-                      onClick={() =>
-                        run(
-                          () =>
-                            api.request("confirm_slot", {
-                              lesson_id: current.id,
-                              slot,
-                              starts_at: new Date(slot).toISOString(),
-                            }),
-                          "Specific lesson time confirmed."
-                        )
-                      }
-                    >
-                      Confirm time
-                    </Button>
-                  </div>
+                  <LessonTimeChange
+                    key={`${current.id}:${current.starts_at}`}
+                    lesson={current}
+                    timezone={student?.profile.timezone || "Australia/Sydney"}
+                  />
                 </>
               )}
             </>

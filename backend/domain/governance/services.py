@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from domain.common import AGENT_IDS, AGENT_NAMES, COMPONENT_NAMES, DomainError, check_writer, current_trace, role_of, save_fields, writes
@@ -123,7 +123,10 @@ def create_case(actor: Any, **fields: Any) -> EscalationCase:
     return EscalationCase.objects.create(**fields)
 
 
+@transaction.atomic
 def resolve_case(actor: Any, case: EscalationCase, *, decision: dict, by: Any) -> EscalationCase:
+    EscalationCase.objects.select_for_update().get(pk=case.pk)
+    case.refresh_from_db()
     if case.status != EscalationCase.Status.OPEN:
         raise DomainError("case_not_open", "This case has already been decided.")
     return _save(
