@@ -529,7 +529,9 @@ export const handlers = [
     const data = read()
     if (!current(request, data)) return denied()
     return respond(
-      data.assessment_sessions.find((x) => x.id === params.id) ||
+      data.assessment_sessions.find(
+        (x) => x.id === params.id || x.result?.id === params.id
+      ) ||
         Object.values(data.students)
           .flatMap((x) => x.assessments)
           .find((x) => x.id === params.id) ||
@@ -555,6 +557,12 @@ export const handlers = [
           { message: "Please enter an answer." },
           { status: 400 }
         )
+      session.responses ||= []
+      session.responses.push({
+        number: session.answered + 1,
+        prompt: session.current_item,
+        answer,
+      })
       session.answered_items.push(item_id)
       session.answered++
       session.current_item_id =

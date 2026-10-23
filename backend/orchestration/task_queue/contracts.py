@@ -269,6 +269,12 @@ class WorkspaceRecord(Record):
     operations: OperationsRecord | None = None
 
 
+class AssessmentResponseRecord(Record):
+    number: int
+    prompt: str
+    answer: str
+
+
 class AssessmentSessionRecord(Record):
     follow_up: EnvelopeRecord | None = None
     id: str
@@ -277,6 +283,7 @@ class AssessmentSessionRecord(Record):
     focus: str
     answered: int
     answered_items: list[str]
+    responses: list[AssessmentResponseRecord] = []
     max_items: int
     status: str  # the frontend shows the next item only while status == "in_progress"
     current_item: str

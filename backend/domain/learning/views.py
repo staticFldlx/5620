@@ -76,6 +76,12 @@ def session_view(session: AssessmentSession) -> dict:
         "focus": session.focus,
         "answered": len(answered),
         "answered_items": answered,
+        # Only saved prompts and the learner's own responses are public. Never
+        # serialize raw items: they also contain hidden rubrics and model fields.
+        "responses": [
+            {"number": index + 1, "prompt": item.get("prompt", ""), "answer": item["answer"]}
+            for index, item in enumerate(items) if item.get("answer") is not None
+        ],
         "max_items": session.max_items,
         "status": session.status,
         "current_item": (pending or {}).get("prompt", ""),
