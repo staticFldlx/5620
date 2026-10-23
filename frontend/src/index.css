@@ -138,6 +138,7 @@ select:focus-visible {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   background: var(--sidebar);
   border-right: 1px solid var(--line);
   padding: 24px 18px;
@@ -145,6 +146,16 @@ select:focus-visible {
   flex-direction: column;
   gap: 0;
   z-index: 10;
+}
+.sidebar-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar-content > :not(.sidebar-spacer) {
+  flex-shrink: 0;
 }
 .brand {
   font-size: 24px;
@@ -272,6 +283,7 @@ select:focus-visible {
   margin-top: 5px;
 }
 .sign-out {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -651,6 +663,15 @@ select:focus-visible {
 }
 .notice-strip .pill {
   margin-left: auto;
+}
+.onboarding-notice {
+  flex-wrap: wrap;
+}
+.onboarding-notice > div {
+  flex: 1 1 240px;
+}
+.onboarding-notice .action {
+  flex-shrink: 0;
 }
 .stage-track {
   display: flex;
@@ -1204,6 +1225,8 @@ select {
   font-weight: 800;
 }
 .inline-status {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   border-radius: 8px;
@@ -1534,6 +1557,9 @@ select {
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
+  }
+  .sidebar-content {
+    display: contents;
   }
   .brand {
     font-size: 19px;

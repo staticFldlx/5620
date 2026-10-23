@@ -14,7 +14,7 @@ import type {
   Interaction,
   Material,
   Plan,
-  Review,
+  ReviewDetail,
   StudentRecord,
 } from "@/api/types"
 import {
@@ -308,7 +308,7 @@ export function TeacherStudents() {
   )
 }
 export function TeacherLessons() {
-  const { lessons, availability } = useTeacher()
+  const { lessons, availability, students } = useTeacher()
   const { run, busy } = useApp()
   const [selected, setSelected] = useState(
     lessons.find((x) => x.status === "confirmed")?.id || lessons[0]?.id || ""
@@ -329,7 +329,7 @@ export function TeacherLessons() {
             <Row
               key={item.id}
               title={item.title}
-              detail={`${fmt(item.starts_at)} · ${item.student_id}`}
+              detail={`${fmt(item.starts_at)} · ${displayName(item.student_id, students[item.student_id])}`}
               right={
                 <Pill tone={item.status === "completed" ? "good" : "info"}>
                   {item.status}
@@ -350,7 +350,10 @@ export function TeacherLessons() {
                   {lesson.status}
                 </Pill>
                 <h3>{fmt(lesson.starts_at)}</h3>
-                <p>Student: {lesson.student_id}</p>
+                <p>
+                  Student:{" "}
+                  {displayName(lesson.student_id, students[lesson.student_id])}
+                </p>
                 <p>Attendance: {lesson.attendance.replace("_", " ")}</p>
                 <label className="field-label">
                   Attendance
@@ -469,11 +472,7 @@ export function TeacherReviews() {
   const [selected, setSelected] = useState(
     reviews.find((x) => x.status === "pending")?.id || reviews[0]?.id || ""
   )
-  const [detail, setDetail] = useState<{
-    review: Review
-    subject: unknown
-    evidence: string
-  } | null>(null)
+  const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [note, setNote] = useState("")
   const [filter, setFilter] = useState("all")
   useEffect(() => {
@@ -518,6 +517,7 @@ export function TeacherReviews() {
           {visible.length ? (
             visible.map((review) => (
               <button
+                data-testid={`review-${review.id}`}
                 className={`select-row ${selected === review.id ? "active" : ""}`}
                 key={review.id}
                 onClick={() => {
@@ -631,6 +631,7 @@ export function TeacherPreparation() {
           <label className="field-label">
             Lesson
             <select
+              aria-label="Lesson"
               value={selected}
               onChange={(e) => setSelected(e.target.value)}
             >
@@ -758,11 +759,7 @@ export function TeacherPreparation() {
   )
 }
 
-function ReviewSubject({
-  detail,
-}: {
-  detail: { review: Review; subject: unknown; evidence: string }
-}) {
+function ReviewSubject({ detail }: { detail: ReviewDetail }) {
   if (detail.review.kind === "plan") {
     const plan = detail.subject as Plan | null
     return (
@@ -829,6 +826,26 @@ function ReviewSubject({
         <>
           <Row title="Student question" detail={item.question} />
           <Row title="Current answer" detail={item.answer} />
+          {detail.draft_answer && (
+            <section aria-label="AI draft (not sent)">
+              <h3>AI draft (not sent)</h3>
+              <Status>{detail.draft_answer}</Status>
+              {!!detail.draft_source_refs?.length && (
+                <ul>
+                  {detail.draft_source_refs.map((source, index) => (
+                    <li key={index}>
+                      {source.title || source.material_id}
+                      {source.locator ? ` · ${source.locator}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p>
+                Review the draft and write your final answer below. The student
+                has not received this draft.
+              </p>
+            </section>
+          )}
           <Row
             title="Confidence"
             detail={`${Math.round(item.confidence * 100)}%`}

@@ -124,7 +124,7 @@ class PlanningAgent(AIAgent):
         goal = " ".join([profile.learning_goal, profile.structured_objective.get("summary", ""), *map(str, skills)]) if profile else ""
         goal_words = set(re.findall(r"[a-z]+", goal.lower())) - {"english", "learning", "learn"}
         candidates, seen = [], set()
-        for teacher in (current, intake):
+        for teacher in (current, intake, *learning.available_teachers()):
             if (teacher is None or teacher.pk in seen or not teacher.is_active
                 or role_of(teacher) != "teacher" or (replacement and teacher == current)):
                 continue

@@ -2,6 +2,7 @@ import { http, HttpResponse } from "msw"
 import fixture from "./fixture.json"
 import type {
   Assessment,
+  AssessmentSession,
   Availability,
   Interaction,
   Lesson,
@@ -27,17 +28,7 @@ type Store = {
   operations: Operations
   requests: RequestEnvelope[]
   password_hashes: Record<string, string>
-  assessment_sessions: {
-    id: string
-    student_id: string
-    kind: string
-    focus: string
-    answered: number
-    answered_items: string[]
-    max_items: number
-    status: string
-    current_item: string
-  }[]
+  assessment_sessions: AssessmentSession[]
 }
 const initial = fixture as unknown as Omit<
   Store,
@@ -448,6 +439,9 @@ export const handlers = [
           )
         ),
         interactions: data.interactions.filter((x) => x.student_id === user.id),
+        assessment_sessions: data.assessment_sessions.filter(
+          (x) => x.student_id === user.id && x.status === "in_progress"
+        ),
       }
     if (user.role === "Teacher")
       workspace = {
@@ -515,11 +509,12 @@ export const handlers = [
         { message: "Confirm a learning goal before assessment." },
         { status: 400 }
       )
-    const session = {
+    const session: AssessmentSession = {
       id: `AS-${Date.now().toString(36)}`,
       student_id,
       kind,
-      focus,
+      focus: focus || "",
+      current_item_id: "item-1",
       answered: 0,
       answered_items: [],
       max_items: 3,
@@ -562,13 +557,17 @@ export const handlers = [
         )
       session.answered_items.push(item_id)
       session.answered++
+      session.current_item_id =
+        session.answered < session.max_items
+          ? `item-${session.answered + 1}`
+          : null
       if (session.answered < session.max_items)
         session.current_item = [
           "Explain how one piece of evidence supports that claim.",
           "What would you improve in the argument?",
         ][session.answered - 1]
       else {
-        session.status = "pending_review"
+        session.status = "awaiting_review"
         const record: Assessment = {
           id: `A-${Date.now().toString(36)}`,
           kind: session.kind,
@@ -582,6 +581,7 @@ export const handlers = [
           feedback: "Your result is provisional until teacher review.",
           requested_focus: session.focus,
         }
+        session.result = record
         data.students[session.student_id].assessments.push(record)
         data.reviews.unshift({
           id: `RV-${record.id}`,
@@ -658,6 +658,12 @@ export const handlers = [
       if (assessment) {
         assessment.status = "confirmed"
         assessment.review_note = note
+        for (const session of data.assessment_sessions) {
+          if (session.result?.id === assessment.id) {
+            session.status = "completed"
+            session.result = assessment
+          }
+        }
         draftInitialPlan(data, review.student_id)
       }
     }
@@ -772,20 +778,33 @@ export const handlers = [
     const data = read(),
       user = current(request, data)
     if (user?.role !== "Founder") return denied()
-    const { note } = await body<{ note: string }>(request)
+    const { action, note } = await body<{
+      action: "pause" | "resume" | "request_correction"
+      note: string
+    }>(request)
     const agent = data.operations.agents.find((x) => x.id === params.id)
     if (!agent) return missing()
+    if (action === "pause") agent.status = "paused"
+    if (action === "resume") agent.status = "healthy"
     data.operations.audit.unshift({
       id: `AUD-${Date.now().toString(36)}`,
       time: new Date().toISOString(),
       actor_role: "Founder",
       actor_name: user.name,
       subject_id: agent.id,
-      action: "request_correction",
+      action,
       result: note,
     })
     save(data)
-    return respond({ agent, status: "requested" })
+    return respond({
+      agent,
+      status:
+        action === "pause"
+          ? "paused"
+          : action === "resume"
+            ? "resumed"
+            : "requested",
+    })
   }),
   http.get(`${prefix}/proposals/:id`, ({ request, params }) => {
     const data = read(),

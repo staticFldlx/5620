@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router"
 import {
   ArrowRight,
@@ -16,6 +16,7 @@ import { api } from "@/api/client"
 import { useApp } from "@/app-context"
 import type {
   Assessment,
+  AssessmentSession,
   Interaction,
   Material,
   RequestEnvelope,
@@ -37,8 +38,20 @@ import { Textarea } from "@/components/ui/textarea"
 
 function useStudent() {
   const { user, workspace } = useApp()
+  const record = user ? workspace?.students?.[user.id] : undefined
+  // A corrected predecessor can remain in the API's pending slot after its replacement activates.
+  // It is history, not a new revision awaiting approval.
+  const student = record && {
+    ...record,
+    pending_plan:
+      record.plan &&
+      record.pending_plan &&
+      record.pending_plan.version <= record.plan.version
+        ? null
+        : record.pending_plan,
+  }
   return {
-    student: user ? workspace?.students?.[user.id] : undefined,
+    student,
     lessons: workspace?.lessons || [],
     materials: workspace?.materials || [],
     interactions: workspace?.interactions || [],
@@ -55,6 +68,64 @@ const date = (value: string) =>
   })
 function latestConfirmed(student?: StudentRecord) {
   return student?.assessments.filter((x) => x.status === "confirmed").at(-1)
+}
+function studentNextStep(
+  student: StudentRecord | undefined,
+  sessions: AssessmentSession[]
+) {
+  if (student?.plan || student?.pending_plan || latestConfirmed(student))
+    return {
+      href: "/s4",
+      label: "View learning plan",
+      title: student?.plan
+        ? "Your learning plan is active"
+        : student?.pending_plan
+          ? "Your plan is awaiting teacher approval"
+          : "Your assessment is confirmed",
+      description: student?.plan
+        ? "Follow your approved stages and lesson schedule."
+        : student?.pending_plan
+          ? "Your teacher must approve the draft before your learning stages and lessons become active."
+          : "Check your plan status and any next action. A plan becomes active after teacher approval.",
+    }
+  if (!student?.profile.goal_text)
+    return {
+      href: "/s2",
+      label: "Set learning goal",
+      title: "Set your learning goal",
+      description:
+        "Describe your needs and confirm your goal before starting an assessment.",
+    }
+  if (
+    sessions.some((session) =>
+      ["awaiting_review", "pending_review"].includes(session.status)
+    ) ||
+    student.assessments.some(
+      (assessment) => assessment.status === "pending_review"
+    )
+  )
+    return {
+      href: "/s3",
+      label: "View assessment status",
+      title: "Your assessment is awaiting teacher review",
+      description:
+        "Your answers are saved. Your teacher will confirm the result before it becomes your current level.",
+    }
+  if (sessions.some((session) => session.status === "in_progress"))
+    return {
+      href: "/s3",
+      label: "Continue assessment",
+      title: "Continue your placement assessment",
+      description:
+        "Your submitted answers are saved. Open Assessments to continue your existing session.",
+    }
+  return {
+    href: "/s3",
+    label: "Start placement assessment",
+    title: "Your learning goal is saved",
+    description:
+      "Next, complete your placement assessment. Your confirmed result will be used to prepare a plan for teacher approval.",
+  }
 }
 function MaterialButton({ material }: { material: Material }) {
   const [open, setOpen] = useState(false)
@@ -88,6 +159,11 @@ export function StudentOverview() {
   const next = lessons.find((x) => x.status === "confirmed") || lessons.at(-1)
   const plan = student?.plan
   const confirmed = latestConfirmed(student)
+  const { workspace } = useApp()
+  const nextStep = studentNextStep(
+    student,
+    workspace?.assessment_sessions || []
+  )
   return (
     <Page
       eyebrow="PERSONALISED LEARNING · HUMAN GUIDANCE"
@@ -102,14 +178,36 @@ export function StudentOverview() {
       <div className="metric-grid">
         <Metric
           label="Current level"
-          value={confirmed?.level || "—"}
-          note={student?.profile.goal_summary}
+          value={
+            confirmed?.level ||
+            (student?.assessments.some(
+              (assessment) => assessment.status === "pending_review"
+            )
+              ? "Pending review"
+              : "Not assessed")
+          }
+          note={
+            confirmed
+              ? "Confirmed assessment result"
+              : student?.profile.self_level
+                ? `Self-assessed: ${student.profile.self_level}. Awaiting confirmed assessment.`
+                : "Complete an assessment to confirm your level"
+          }
           icon={Target}
         />
         <Metric
           label="Learning stage"
-          value={plan ? `${plan.stage_index + 1}/${plan.stages.length}` : "—"}
-          note={plan?.stages[plan.stage_index]?.title || "Awaiting plan"}
+          value={
+            plan
+              ? `${plan.stage_index + 1}/${plan.stages.length}`
+              : "Not started"
+          }
+          note={
+            plan?.stages[plan.stage_index]?.title ||
+            (student?.pending_plan
+              ? "Awaiting plan approval"
+              : "Available after plan approval")
+          }
           icon={ChartNoAxesCombined}
         />
         <Metric
@@ -125,6 +223,21 @@ export function StudentOverview() {
           icon={Clock3}
         />
       </div>
+      {!plan && student?.profile.goal_text && (
+        <section
+          className="notice-strip onboarding-notice"
+          aria-label="Your next step"
+        >
+          <ClipboardCheck size={17} />
+          <div>
+            <strong>{nextStep.title}</strong>
+            <p>{nextStep.description}</p>
+          </div>
+          <Link className="action primary" to={nextStep.href}>
+            {nextStep.label} <ArrowRight size={15} />
+          </Link>
+        </section>
+      )}
       {student?.pending_plan && (
         <div className="notice-strip">
           <ClipboardCheck size={17} />
@@ -138,29 +251,27 @@ export function StudentOverview() {
       <div className="board two-thirds">
         <Panel className="hero-panel">
           <div className="hero-content">
-            <span className="eyebrow">YOUR NEXT LESSON</span>
+            <span className="eyebrow">
+              {next || plan ? "YOUR NEXT LESSON" : "YOUR NEXT STEP"}
+            </span>
             <Pill tone="good">{next?.status || "No lesson"}</Pill>
-            <h2>{next?.title || "Your learning journey starts here"}</h2>
+            <h2>
+              {next?.title ||
+                (plan ? "Your learning journey starts here" : nextStep.title)}
+            </h2>
             <p>
               {next
                 ? `${next.teacher.name} · ${date(next.starts_at)}`
                 : plan
                   ? "Your first lesson will appear when a time is confirmed."
-                  : student?.profile.goal_text
-                    ? "Complete assessment and teacher review to build your plan."
-                    : "Set a goal to start planning."}
+                  : nextStep.description}
             </p>
             <div className="hero-actions">
               <Link
                 className="action primary"
-                to={next ? "/s5" : plan ? "/s4" : "/s2"}
+                to={next ? "/s5" : nextStep.href}
               >
-                {next
-                  ? "View lesson"
-                  : plan
-                    ? "View learning plan"
-                    : "Set learning goal"}{" "}
-                <ArrowRight size={15} />
+                {next ? "View lesson" : nextStep.label} <ArrowRight size={15} />
               </Link>
               <Link className="action secondary" to="/s6">
                 Ask assistant
@@ -173,26 +284,46 @@ export function StudentOverview() {
           <p className="muted">
             {student?.profile.goal_summary || "Set your goal"}
           </p>
-          <div className="stage-track">
-            {plan?.stages.map((stage, i) => (
-              <span
-                key={stage.title}
-                className={i <= plan.stage_index ? "filled" : ""}
-              />
-            ))}
-          </div>
-          <p>
-            Stage {plan ? plan.stage_index + 1 : 0} of{" "}
-            {plan?.stages.length || 0}
-          </p>
-          <div className="key-values">
-            <span>
-              Your teacher<strong>{plan?.teacher.name || "—"}</strong>
-            </span>
-            <span>
-              Weekly time<strong>{plan?.weekly_hours || 0} hours</strong>
-            </span>
-          </div>
+          {plan ? (
+            <>
+              <div className="stage-track">
+                {plan.stages.map((stage, i) => (
+                  <span
+                    key={stage.title}
+                    className={i <= plan.stage_index ? "filled" : ""}
+                  />
+                ))}
+              </div>
+              <p>
+                Stage {plan.stage_index + 1} of {plan.stages.length}
+              </p>
+              <div className="key-values">
+                <span>
+                  Your teacher<strong>{plan.teacher.name}</strong>
+                </span>
+                <span>
+                  Weekly time<strong>{plan.weekly_hours} hours</strong>
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <Pill tone="info">
+                {student?.pending_plan
+                  ? "Plan awaiting approval"
+                  : "No active plan yet"}
+              </Pill>
+              <p>{nextStep.description}</p>
+              <div className="key-values">
+                <span>
+                  Your teacher<strong>Not assigned yet</strong>
+                </span>
+                <span>
+                  Planned weekly time<strong>Not active yet</strong>
+                </span>
+              </div>
+            </>
+          )}
           <Link className="action secondary" to="/s4">
             View learning plan <ArrowRight size={15} />
           </Link>
@@ -209,37 +340,13 @@ export function StudentOverview() {
           </Link>
         </Panel>
         <Panel title="Your next steps">
-          {!student?.profile.goal_text ? (
+          {!plan ? (
             <Row
-              title="Set your learning goal"
-              detail="Describe your needs and confirm the summary"
+              title={nextStep.title}
+              detail={nextStep.description}
               right={
-                <Link className="text-link" to="/s2">
-                  Start →
-                </Link>
-              }
-            />
-          ) : !confirmed ? (
-            <Row
-              title="Complete your first assessment"
-              detail="Your teacher confirms low-confidence results"
-              right={
-                <Link className="text-link" to="/s3">
-                  Start →
-                </Link>
-              }
-            />
-          ) : !plan ? (
-            <Row
-              title="First plan with your teacher"
-              detail={
-                student?.pending_plan
-                  ? "Pending teacher approval"
-                  : "Preparing a plan from your goal and level"
-              }
-              right={
-                <Link className="text-link" to="/s4">
-                  View →
+                <Link className="text-link" to={nextStep.href}>
+                  {nextStep.label} →
                 </Link>
               }
             />
@@ -311,7 +418,11 @@ export function StudentOverview() {
 }
 export function StudentGoal() {
   const { student } = useStudent()
-  const { run, busy } = useApp()
+  const { run, busy, workspace } = useApp()
+  const nextStep = studentNextStep(
+    student,
+    workspace?.assessment_sessions || []
+  )
   const [goal, setGoal] = useState(student?.profile.goal_text || "")
   const [skills, setSkills] = useState(student?.profile.focus_skills || [])
   const [hours, setHours] = useState(student?.profile.weekly_hours || 3)
@@ -325,7 +436,6 @@ export function StudentGoal() {
     null
   )
   const [answer, setAnswer] = useState("")
-  const [assessmentNext, setAssessmentNext] = useState(false)
   function show(envelope: RequestEnvelope) {
     if (
       envelope.status === "awaiting_confirmation" &&
@@ -340,7 +450,6 @@ export function StudentGoal() {
   }
   async function organise() {
     if (!goal.trim()) return
-    setAssessmentNext(false)
     const result = await run(() =>
       api.request("collect_goal", { goal_text: goal, focus_skills: skills })
     )
@@ -369,7 +478,7 @@ export function StudentGoal() {
         }),
       "Learning goal saved."
     )
-    if (result) setAssessmentNext(result.phase === "initial_assessment_next")
+    if (result?.status === "completed") setSummary("")
   }
   return (
     <Page
@@ -377,6 +486,20 @@ export function StudentGoal() {
       title="Make your goal clear."
       subtitle="Tell the Coordinator what you want to achieve. Your teacher can use this profile when reviewing your plan."
     >
+      {student?.profile.goal_text && !student.plan && (
+        <section
+          className="notice-strip onboarding-notice"
+          aria-label="Next step for your saved profile"
+        >
+          <div>
+            <strong>{nextStep.title}</strong>
+            <p>{nextStep.description}</p>
+          </div>
+          <Link className="action primary" to={nextStep.href}>
+            {nextStep.label} <ArrowRight size={15} />
+          </Link>
+        </section>
+      )}
       <div className="board two">
         <Panel title="Your learning direction">
           <label className="field-label">
@@ -413,7 +536,7 @@ export function StudentGoal() {
           </div>
           <div className="level-fields">
             <label className="field-label">
-              Current level
+              Current level (self-assessed)
               <select
                 value={selfLevel}
                 onChange={(e) => setSelfLevel(e.target.value)}
@@ -499,11 +622,6 @@ export function StudentGoal() {
                 Skills: {skills.join(", ") || "To be discussed"} · {hours} hours
                 a week
               </p>
-              {assessmentNext && (
-                <Link className="text-link" to="/s3">
-                  Start your placement assessment →
-                </Link>
-              )}
             </>
           ) : (
             <>
@@ -524,19 +642,38 @@ export function StudentGoal() {
 }
 export function StudentAssessments() {
   const { student, user } = useStudent()
-  const { run, busy } = useApp()
-  const [session, setSession] = useState<{
-    id: string
-    current_item: string
-    answered: number
-    max_items: number
-    status: string
-  } | null>(null)
+  const { run, busy, workspace, refresh } = useApp()
+  const [session, setSession] = useState<AssessmentSession | null>(null)
   const [answer, setAnswer] = useState("")
   const [filter, setFilter] = useState("all")
-  const [pausedId, setPausedId] = useState(() =>
-    user ? localStorage.getItem(`lingopath-assessment-${user.id}`) : null
-  )
+  const ongoing = workspace?.assessment_sessions || []
+  // Keep an already displayed provisional result current after a teacher confirms it elsewhere.
+  const sessionId = session?.id
+  const awaitingReview =
+    session?.status === "awaiting_review" ||
+    session?.status === "pending_review"
+  useEffect(() => {
+    if (!sessionId || !awaitingReview) return
+    let active = true
+    const update = () => {
+      void api
+        .getAssessment(sessionId)
+        .then((next) => {
+          if (active) {
+            setSession(next)
+            void refresh().catch(() => {})
+          }
+        })
+        .catch(() => {})
+    }
+    const timer = window.setInterval(update, 5000)
+    window.addEventListener("focus", update)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      window.removeEventListener("focus", update)
+    }
+  }, [sessionId, awaitingReview, refresh])
   const assessments = useMemo(
     () =>
       (student?.assessments || []).filter(
@@ -554,22 +691,20 @@ export function StudentAssessments() {
     )
     if (result) {
       setSession(result)
-      setPausedId(result.id)
-      localStorage.setItem(`lingopath-assessment-${user.id}`, result.id)
     }
   }
   async function submit() {
     if (!session || !answer.trim()) return
     const result = await run(() =>
-      api.answerAssessment(session.id, `item-${session.answered + 1}`, answer)
+      api.answerAssessment(
+        session.id,
+        session.current_item_id || `item-${session.answered + 1}`,
+        answer
+      )
     )
     if (result) {
       setSession(result as typeof session)
       setAnswer("")
-      if (result.status !== "in_progress") {
-        localStorage.removeItem(`lingopath-assessment-${user?.id}`)
-        setPausedId(null)
-      }
     }
   }
   return (
@@ -594,24 +729,42 @@ export function StudentAssessments() {
                 <Button
                   className="action primary"
                   onClick={start}
-                  disabled={busy || !student?.profile.goal_text}
+                  disabled={
+                    busy || !student?.profile.goal_text || ongoing.length > 0
+                  }
                 >
                   Start assessment <ArrowRight size={15} />
                 </Button>
-                {pausedId && (
+                {ongoing.map((saved) => (
                   <Button
+                    key={saved.id}
                     className="action secondary"
                     disabled={busy}
                     onClick={async () => {
                       const result = await run(() =>
-                        api.getAssessment(pausedId)
+                        api.getAssessment(saved.id)
                       )
-                      if (result) setSession(result as typeof session)
+                      if (result) {
+                        setSession(result)
+                        setAnswer("")
+                      }
                     }}
                   >
-                    Resume saved assessment
+                    Continue{" "}
+                    {saved.kind === "directed"
+                      ? "teacher-directed"
+                      : saved.kind}{" "}
+                    assessment
+                    {saved.focus ? ` · ${saved.focus}` : ""}
                   </Button>
-                )}
+                ))}
+                <Button
+                  className="action secondary"
+                  disabled={busy}
+                  onClick={() => run(refresh)}
+                >
+                  Refresh assessments
+                </Button>
               </div>
             </>
           ) : session.status === "in_progress" ? (
@@ -644,12 +797,34 @@ export function StudentAssessments() {
             </>
           ) : (
             <>
-              <Pill tone="warn">Pending teacher review</Pill>
-              <h3>Assessment submitted</h3>
+              <Pill tone={session.status === "completed" ? "good" : "warn"}>
+                {session.status === "completed"
+                  ? "Result confirmed"
+                  : awaitingReview
+                    ? "Pending teacher review"
+                    : session.status.replaceAll("_", " ")}
+              </Pill>
+              <h3>
+                {session.status === "completed"
+                  ? "Assessment complete"
+                  : "Assessment submitted"}
+              </h3>
               <p>
-                Your provisional result is visible below. Your teacher will
-                confirm it before it becomes your current level.
+                {session.status === "completed"
+                  ? "Your confirmed result is saved in your learning record. Plan approval is a separate step."
+                  : awaitingReview
+                    ? "Your provisional result is saved. Your teacher will review it before it becomes your current level."
+                    : "Refresh to check the latest assessment status."}
               </p>
+              <Button
+                disabled={busy}
+                onClick={async () => {
+                  const latest = await run(() => api.getAssessment(session.id))
+                  if (latest) setSession(latest)
+                }}
+              >
+                Refresh result
+              </Button>
             </>
           )}
         </Panel>
@@ -709,7 +884,7 @@ export function StudentPlan() {
         <Panel
           title={
             displayPlan
-              ? `Plan ${displayPlan.id} · version ${displayPlan.version}`
+              ? `Learning plan · Version ${displayPlan.version}`
               : "Learning plan"
           }
         >
@@ -779,8 +954,9 @@ export function StudentPlan() {
           {plan ? (
             <Panel title="Request a change">
               <p>
-                Tell your teacher what needs adjusting. Approval is required
-                before a new plan becomes active.
+                {student?.pending_plan
+                  ? `Version ${student.pending_plan.version} must be reviewed before you request another revision. Your current plan remains active.`
+                  : "Tell your teacher what needs adjusting. Approval is required before a new plan becomes active."}
               </p>
               <Textarea
                 value={reason}

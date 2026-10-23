@@ -93,6 +93,7 @@ def _decision_text(decision: dict | None) -> str | None:
 
 def business_case_view(case: EscalationCase) -> dict:
     return {
+        "available_actions": (["widen_match", "request_teacher", "resolve"] if case.task and case.task.target_agent == "planning" and case.task.reason == "teacher_unavailable" else ["resolve", "request_teacher"]),
         "id": str(case.pk),
         "kind": "business",
         "status": "pending" if case.status == EscalationCase.Status.OPEN else "resolved",

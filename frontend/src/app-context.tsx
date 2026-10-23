@@ -7,6 +7,7 @@ import {
 } from "react"
 import type { ReactNode } from "react"
 import { useNavigate } from "react-router"
+import { requestFeedback } from "@/api/request-feedback"
 import { api, sessionStore } from "@/api/client"
 import type { User, Workspace } from "@/api/types"
 
@@ -16,6 +17,7 @@ type AppState = {
   loading: boolean
   busy: boolean
   notice: string
+  noticeHref: string
   refresh: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
@@ -33,6 +35,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(!!sessionStore.get())
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState("")
+  const [noticeHref, setNoticeHref] = useState("")
   const refresh = useCallback(async () => {
     const next = await api.workspace()
     setWorkspace(next)
@@ -63,6 +66,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       active = false
     }
   }, [])
+  useEffect(() => {
+    const onFocus = () => {
+      if (sessionStore.get()) void refresh().catch(() => {})
+    }
+    window.addEventListener("focus", onFocus)
+    return () => window.removeEventListener("focus", onFocus)
+  }, [refresh])
   const login = async (email: string, password: string) => {
     const result = await api.login(email, password)
     sessionStore.set(result.session)
@@ -84,18 +94,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   const run = async <T,>(work: () => Promise<T>, success?: string) => {
     setBusy(true)
-    setNotice("")
+    setNotice("Processing your request…")
+    setNoticeHref("")
     try {
       const result = await work()
       await refresh()
-      if (success) setNotice(success)
+      const feedback = requestFeedback(result)
+      setNotice(feedback?.message || success || "")
+      if (feedback?.approvals && user?.role === "Founder") setNoticeHref("/f4")
       return result
     } catch (error) {
       const e = error as {
         response?: { data?: { message?: string } }
         message?: string
+        code?: string
       }
-      setNotice(e.response?.data?.message || e.message || "Request failed")
+      setNotice(
+        e.code === "ECONNABORTED"
+          ? "The server may still be processing this request. Refresh your records before submitting again."
+          : e.response?.data?.message || e.message || "Request failed"
+      )
       return undefined
     } finally {
       setBusy(false)
@@ -109,12 +127,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         loading,
         busy,
         notice,
+        noticeHref,
         refresh,
         login,
         register,
         logout,
         run,
-        clearNotice: () => setNotice(""),
+        clearNotice: () => {
+          setNotice("")
+          setNoticeHref("")
+        },
       }}
     >
       {children}

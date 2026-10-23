@@ -35,6 +35,8 @@ function useOperations() {
 }
 export function FounderOverview() {
   const ops = useOperations()
+  const { run, busy } = useApp()
+  const [controlNote, setControlNote] = useState("")
   const logs = ops?.logs || []
   const pending = ops?.proposals.filter((x) => x.status === "pending") || []
   return (
@@ -75,6 +77,14 @@ export function FounderOverview() {
           title="Five roles, one connected system"
         >
           <p>Observable AI. Accountable decisions.</p>
+          <label className="field-label">
+            Agent decision reason
+            <Textarea
+              value={controlNote}
+              onChange={(event) => setControlNote(event.target.value)}
+              placeholder="Explain why the agent should be paused or resumed"
+            />
+          </label>
           <div className="agent-grid">
             {ops?.agents.map((agent) => (
               <div className="agent-card" key={agent.id}>
@@ -84,6 +94,26 @@ export function FounderOverview() {
                 <Pill tone={agent.status === "healthy" ? "good" : "warn"}>
                   {agent.status}
                 </Pill>
+                <Button
+                  disabled={
+                    busy ||
+                    !controlNote.trim() ||
+                    agent.status === "not_implemented"
+                  }
+                  onClick={() =>
+                    run(
+                      () =>
+                        api.decideAgent(
+                          agent.id,
+                          agent.status === "paused" ? "resume" : "pause",
+                          controlNote
+                        ),
+                      `Agent ${agent.status === "paused" ? "resumed" : "paused"}.`
+                    )
+                  }
+                >
+                  {agent.status === "paused" ? "Resume" : "Pause"}
+                </Button>
               </div>
             ))}
           </div>
@@ -113,8 +143,14 @@ export function FounderOverview() {
           <div className="confidence-bars">
             {logs.map((log) => (
               <div key={log.id}>
-                <span>{log.id}</span>
-                <i style={{ height: `${Math.round(log.confidence * 100)}%` }} />
+                <span title={`${log.event} · ${log.id}`}>
+                  {log.id.slice(0, 8)}
+                </span>
+                <i
+                  style={{
+                    height: `${Math.round((log.confidence ?? 0) * 100)}%`,
+                  }}
+                />
               </div>
             ))}
           </div>
@@ -165,7 +201,7 @@ export function FounderCases() {
       "Case decision recorded."
     )
     if (result) {
-      setDetail(result as Case)
+      setDetail(await api.getCase(selected))
       setNote("")
     }
   }
@@ -221,6 +257,15 @@ export function FounderCases() {
                     />
                   </label>
                   <div className="button-row">
+                    {detail.available_actions?.includes("widen_match") && (
+                      <Button
+                        className="action primary"
+                        disabled={busy || !note.trim()}
+                        onClick={() => decide("widen_match")}
+                      >
+                        Widen teacher match
+                      </Button>
+                    )}
                     <Button
                       className="action primary"
                       disabled={busy || !note.trim()}
@@ -370,7 +415,7 @@ export function FounderApprovals() {
       "Decision recorded in the audit log."
     )
     if (result) {
-      setDetail(result as Proposal)
+      setDetail(await api.getProposal(selected))
       setNote("")
     }
   }

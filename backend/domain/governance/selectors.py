@@ -206,3 +206,7 @@ def agent_timeout_override(agent_id: str) -> int | None:
         .values_list("timeout_seconds", flat=True)
         .first()
     )
+
+
+def request_for_assessment(session_id):
+    return ServiceRequest.objects.filter(type="start_assessment", result__session_id=str(session_id)).order_by("-created_at").first()

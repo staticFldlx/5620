@@ -11,7 +11,7 @@ from domain.learning.views import session_view
 from orchestration.task_queue import dispatcher
 from orchestration.task_queue.contracts import AssessmentSessionRecord, EnvelopeRecord
 
-from .. import lookups
+from .. import lookups, presenters
 from ..schemas import AnswerIn, AssessmentIn
 from .requests import respond
 
@@ -21,11 +21,14 @@ KINDS = set(AssessmentSession.Type.values)
 
 def _session_response(service_request: ServiceRequest):
     """Session JSON once the assessment agent has created it; 202 + envelope while queued (worker mode)."""
-    respond(service_request)  # raises 422 when the request failed
+    if service_request.status in (ServiceRequest.Status.QUEUED, ServiceRequest.Status.RUNNING):
+        return Status(202, request_envelope(service_request))
     session = learning.assessment_session(lookups.parse_uuid((service_request.result or {}).get("session_id")))
     if session is None:
+        respond(service_request)
         return Status(202, request_envelope(service_request))
-    return Status(200, session_view(session))
+    # A downstream planning failure must not hide the completed assessment.
+    return Status(200, {**session_view(session), "follow_up": request_envelope(service_request)})
 
 
 @router.post("/assessments", response={200: AssessmentSessionRecord, 202: EnvelopeRecord})
@@ -57,7 +60,7 @@ def _session(user, assessment_id: str) -> AssessmentSession:
 @router.get("/assessments/{assessment_id}", response=AssessmentSessionRecord)
 def get_assessment(request, assessment_id: str):
     require_role(request.auth, Role.STUDENT, Role.TEACHER)
-    return session_view(_session(request.auth, assessment_id))
+    return presenters.assessment_record(_session(request.auth, assessment_id))
 
 
 @router.post("/assessments/{assessment_id}/answers", response={200: AssessmentSessionRecord, 202: EnvelopeRecord})
@@ -68,7 +71,8 @@ def answer_assessment(request, assessment_id: str, body: AnswerIn):
     if not body.answer.strip():
         raise DomainError("answer_required", "Please enter an answer.", status=400)
     if any(item.get("item_id") == body.item_id and item.get("answer") is not None for item in session.items or []):
-        return Status(200, session_view(session))  # duplicate submission is idempotent
+        related = governance.request_for_assessment(session.pk)
+        return _session_response(related) if related else Status(200, session_view(session))  # duplicate submission is idempotent
     waiting = governance.request_awaiting_session(session.pk)
     if waiting is None:
         raise DomainError("assessment_not_awaiting_answer", "This assessment is not waiting for an answer.")

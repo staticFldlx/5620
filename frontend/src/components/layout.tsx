@@ -86,7 +86,7 @@ export function Guard({ role }: { role: Role }) {
   return <Shell role={role} />
 }
 function Shell({ role }: { role: Role }) {
-  const { user, workspace, logout, notice, clearNotice } = useApp()
+  const { user, workspace, logout, notice, noticeHref, clearNotice } = useApp()
   const { theme, setTheme } = useTheme()
   const location = useLocation()
   const [motionOn, setMotionOn] = ReactUseMotion()
@@ -94,72 +94,78 @@ function Shell({ role }: { role: Role }) {
   return (
     <div className="app-shell" data-motion={motionOn ? "on" : "off"}>
       <aside className="sidebar">
-        <Link to="/" className="brand">
-          <span className="brand-mark">
-            <ArrowUpRight size={23} />
-          </span>
-          <span>LingoPath</span>
-        </Link>
-        <div className="workspace-label">
-          <span className="workspace-icon">
-            {role === "Student" ? "A" : role === "Teacher" ? "T" : "F"}
-          </span>
-          <span>
+        <div className="sidebar-content">
+          <Link to="/" className="brand">
+            <span className="brand-mark">
+              <ArrowUpRight size={23} />
+            </span>
+            <span>LingoPath</span>
+          </Link>
+          <div className="workspace-label">
+            <span className="workspace-icon">
+              {role === "Student" ? "A" : role === "Teacher" ? "T" : "F"}
+            </span>
+            <span>
+              <strong>
+                {role === "Student"
+                  ? student?.profile.goal_summary || "Learning workspace"
+                  : role === "Teacher"
+                    ? "Teaching workspace"
+                    : "Company operations"}
+              </strong>
+              <small>
+                {role === "Student"
+                  ? "Current learning goal"
+                  : "Role workspace"}
+              </small>
+            </span>
+          </div>
+          <div className="nav-caption">
+            {role === "Student"
+              ? "YOUR WORKSPACE"
+              : role === "Teacher"
+                ? "TEACHING WORKSPACE"
+                : "COMPANY WORKSPACE"}
+          </div>
+          <nav className="navigation" aria-label={`${role} workspace`}>
+            {nav[role].map(([path, label, Icon]) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) =>
+                  `nav-item ${isActive ? "selected" : ""}`
+                }
+              >
+                <Icon size={17} />
+                <span>{label}</span>
+              </NavLink>
+            ))}
+          </nav>
+          <div className="sidebar-spacer" />
+          <div className="assistant-hint">
+            <Sparkles size={16} />
             <strong>
               {role === "Student"
-                ? student?.profile.goal_summary || "Learning workspace"
+                ? "Learning assistant"
                 : role === "Teacher"
-                  ? "Teaching workspace"
-                  : "Company operations"}
+                  ? "Teaching assistant"
+                  : "Technical manager"}
             </strong>
-            <small>
-              {role === "Student" ? "Current learning goal" : "Role workspace"}
-            </small>
-          </span>
-        </div>
-        <div className="nav-caption">
-          {role === "Student"
-            ? "YOUR WORKSPACE"
-            : role === "Teacher"
-              ? "TEACHING WORKSPACE"
-              : "COMPANY WORKSPACE"}
-        </div>
-        <nav className="navigation" aria-label={`${role} workspace`}>
-          {nav[role].map(([path, label, Icon]) => (
-            <NavLink
-              key={path}
-              to={path}
-              className={({ isActive }) =>
-                `nav-item ${isActive ? "selected" : ""}`
+            <span>
+              {role === "Student"
+                ? "Answers, sources and practice at your level."
+                : role === "Teacher"
+                  ? "Evidence and materials, ready for your review."
+                  : "Signals and evidence, with human approval."}
+            </span>
+            <Link
+              to={
+                role === "Student" ? "/s6" : role === "Teacher" ? "/t5" : "/f3"
               }
             >
-              <Icon size={17} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="sidebar-spacer" />
-        <div className="assistant-hint">
-          <Sparkles size={16} />
-          <strong>
-            {role === "Student"
-              ? "Learning assistant"
-              : role === "Teacher"
-                ? "Teaching assistant"
-                : "Technical manager"}
-          </strong>
-          <span>
-            {role === "Student"
-              ? "Answers, sources and practice at your level."
-              : role === "Teacher"
-                ? "Evidence and materials, ready for your review."
-                : "Signals and evidence, with human approval."}
-          </span>
-          <Link
-            to={role === "Student" ? "/s6" : role === "Teacher" ? "/t5" : "/f3"}
-          >
-            Open workspace <ArrowUpRight size={13} />
-          </Link>
+              Open workspace <ArrowUpRight size={13} />
+            </Link>
+          </div>
         </div>
         <button className="sign-out" onClick={logout}>
           <LogOut size={15} /> Sign out
@@ -223,6 +229,7 @@ function Shell({ role }: { role: Role }) {
           className="toast"
         >
           <span>{notice}</span>
+          {noticeHref && <Link to={noticeHref}>Review approvals →</Link>}
           <button onClick={clearNotice}>×</button>
         </motion.div>
       )}

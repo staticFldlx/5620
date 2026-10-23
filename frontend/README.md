@@ -93,3 +93,7 @@ GitHub Actions（`.github/workflows/ci.yml`）在每次 push 和 PR 时运行 `n
 | `lingopath-theme`、`lingopath-motion` | 日夜主题和动效开关；系统设置了“减少动态效果”时会关闭动画 |
 
 连接真实后端时，演示数据保存在后端数据库，用后端的 `python manage.py load_demo_data --reset` 重置。
+
+## 已知问题修复与回归测试
+
+2026-10-23 已修复测评状态、定向测评恢复、Founder 后续执行提示/暂停恢复/放宽匹配、教师私有草稿和显示问题。详见 [修复内容与验证方法](docs/known-issues-fixes.md)。`npm test` 运行请求状态单元测试；`npm run test:e2e` 使用临时后端验证真实页面流程，`AGENT_TASK_EXECUTION=worker npm run test:e2e` 验证异步模式；`npm run test:e2e:mock` 检查离线演示兼容性。

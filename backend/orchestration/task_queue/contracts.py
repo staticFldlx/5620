@@ -181,6 +181,7 @@ class EvidenceRef(Record):
 
 
 class CaseRecord(Record):
+    available_actions: list[str] = []
     id: str
     kind: str
     status: str
@@ -247,6 +248,7 @@ class OperationsRecord(Record):
 
 
 class WorkspaceRecord(Record):
+    assessment_sessions: list[AssessmentSessionRecord] | None = None
     user: UserRecord
     students: dict[str, StudentRecord] | None = None
     lessons: list[LessonRecord] | None = None
@@ -258,6 +260,7 @@ class WorkspaceRecord(Record):
 
 
 class AssessmentSessionRecord(Record):
+    follow_up: EnvelopeRecord | None = None
     id: str
     student_id: str
     kind: str

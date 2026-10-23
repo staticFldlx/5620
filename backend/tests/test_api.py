@@ -47,7 +47,7 @@ def test_register_and_login_errors(api):
 # --- workspace ------------------------------------------------------------------------------------
 def test_student_workspace_shape(ivy):
     body = ivy.get("/workspace").json()
-    assert set(body) == {"user", "students", "lessons", "materials", "interactions"}
+    assert set(body) == {"user", "students", "lessons", "materials", "interactions", "assessment_sessions"}
     record = body["students"][key("student-ivy")]
     assert record["plan"]["status"] == "active" and record["pending_plan"]["version"] == 2
     assert record["plan"]["stages"][1]["course_ref"] == "CAT-02"

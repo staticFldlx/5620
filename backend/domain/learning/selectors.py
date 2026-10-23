@@ -52,6 +52,14 @@ def proficiency(pk: Any) -> ProficiencyProfile | None:
     return ProficiencyProfile.objects.select_related("session").filter(pk=pk).first()
 
 
+def ongoing_assessments(student: Any) -> QuerySet[AssessmentSession]:
+    return AssessmentSession.objects.filter(student=student, status="in_progress").order_by("-created_at")
+
+
+def available_teachers():
+    return get_user_model().objects.filter(groups__name=Role.TEACHER, is_active=True).select_related("teacher_profile").prefetch_related("availability_slots").order_by("pk").distinct()
+
+
 def assessment_session(pk: Any) -> AssessmentSession | None:
     return AssessmentSession.objects.filter(pk=pk).select_related("student").first()
 
@@ -61,7 +69,14 @@ def active_plan(student: Any) -> LearningPlan | None:
 
 
 def pending_plan(student: Any) -> LearningPlan | None:
-    return LearningPlan.objects.filter(student=student, status__in=PENDING_PLAN_STATUSES).select_related("teacher").last()
+    """Return an unfinished plan newer than the active version, preserving older history."""
+    candidates = LearningPlan.objects.filter(student=student, status__in=PENDING_PLAN_STATUSES)
+    current = active_plan(student)
+    if current is not None:
+        # Corrected predecessors retain changes_requested for the audit trail.
+        # Once their replacement is active, they no longer block a new revision.
+        candidates = candidates.filter(version__gt=current.version)
+    return candidates.select_related("teacher").last()
 
 
 def plan(pk: Any) -> LearningPlan | None:

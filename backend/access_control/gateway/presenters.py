@@ -65,6 +65,7 @@ def student_workspace(user: Any) -> dict:
         "lessons": [lviews.lesson_view(lesson) for lesson in lessons],
         "materials": [lviews.material_view(m) for m in learning.materials_for_lessons(lessons, approved_only=True)],
         "interactions": interactions(user),
+        "assessment_sessions": [assessment_record(s) for s in learning.ongoing_assessments(user)[:limit()]],
     }
 
 
@@ -134,4 +135,17 @@ def review_subject(case: EscalationCase) -> dict | None:
 
 
 def review_detail(case: EscalationCase) -> dict:
-    return {"review": gviews.review_view(case), "subject": review_subject(case), "evidence": case.trigger}
+    # Only the assigned reviewer reaches this presenter. Never add drafts to interaction_view,
+    # which also supplies student workspaces and must retain the holding reply.
+    detail = {"review": gviews.review_view(case), "subject": review_subject(case), "evidence": case.trigger}
+    if case.subject_type == EscalationCase.Subject.QUESTION:
+        entry = learning.history_entry(lookups.parse_uuid(case.subject_id))
+        payload = entry.payload if entry else {}
+        detail.update(draft_answer=(payload or {}).get("draft_answer"),
+                      draft_source_refs=(payload or {}).get("draft_source_refs", []))
+    return detail
+
+
+def assessment_record(session) -> dict:
+    related = governance.request_for_assessment(session.pk)
+    return {**lviews.session_view(session), "follow_up": gviews.request_envelope(related) if related else None}
