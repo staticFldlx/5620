@@ -1,3 +1,5 @@
+import { useState, useSyncExternalStore, type ReactNode } from "react"
+import { Dialog } from "radix-ui"
 import { Link, NavLink, Outlet, useLocation, Navigate } from "react-router"
 import { motion } from "motion/react"
 import {
@@ -14,6 +16,8 @@ import {
   Layers3,
   LogOut,
   Moon,
+  Menu,
+  X,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -91,89 +95,101 @@ function Shell({ role }: { role: Role }) {
   const location = useLocation()
   const [motionOn, setMotionOn] = ReactUseMotion()
   const student = workspace?.students?.[user!.id]
-  return (
-    <div className="app-shell" data-motion={motionOn ? "on" : "off"}>
-      <aside className="sidebar">
-        <div className="sidebar-content">
-          <Link to="/" className="brand">
-            <span className="brand-mark">
-              <ArrowUpRight size={23} />
-            </span>
-            <span>LingoPath</span>
-          </Link>
-          <div className="workspace-label">
-            <span className="workspace-icon">
-              {role === "Student" ? "A" : role === "Teacher" ? "T" : "F"}
-            </span>
-            <span>
-              <strong>
-                {role === "Student"
-                  ? student?.profile.goal_summary || "Learning workspace"
-                  : role === "Teacher"
-                    ? "Teaching workspace"
-                    : "Company operations"}
-              </strong>
-              <small>
-                {role === "Student"
-                  ? "Current learning goal"
-                  : "Role workspace"}
-              </small>
-            </span>
-          </div>
-          <div className="nav-caption">
-            {role === "Student"
-              ? "YOUR WORKSPACE"
-              : role === "Teacher"
-                ? "TEACHING WORKSPACE"
-                : "COMPANY WORKSPACE"}
-          </div>
-          <nav className="navigation" aria-label={`${role} workspace`}>
-            {nav[role].map(([path, label, Icon]) => (
-              <NavLink
-                key={path}
-                to={path}
-                className={({ isActive }) =>
-                  `nav-item ${isActive ? "selected" : ""}`
-                }
-              >
-                <Icon size={17} />
-                <span>{label}</span>
-              </NavLink>
-            ))}
-          </nav>
-          <div className="sidebar-spacer" />
-          <div className="assistant-hint">
-            <Sparkles size={16} />
+  const isMobile = useSyncExternalStore(
+    subscribeToMobile,
+    mobileSnapshot,
+    () => false
+  )
+  const sidebarContent = (closeMenu?: () => void) => (
+    <>
+      <div className="sidebar-content">
+        <Link to="/" className="brand" onClick={closeMenu}>
+          <span className="brand-mark">
+            <ArrowUpRight size={23} />
+          </span>
+          <span>LingoPath</span>
+        </Link>
+        <div className="workspace-label">
+          <span className="workspace-icon">
+            {role === "Student" ? "A" : role === "Teacher" ? "T" : "F"}
+          </span>
+          <span>
             <strong>
               {role === "Student"
-                ? "Learning assistant"
+                ? student?.profile.goal_summary || "Learning workspace"
                 : role === "Teacher"
-                  ? "Teaching assistant"
-                  : "Technical manager"}
+                  ? "Teaching workspace"
+                  : "Company operations"}
             </strong>
-            <span>
-              {role === "Student"
-                ? "Answers, sources and practice at your level."
-                : role === "Teacher"
-                  ? "Evidence and materials, ready for your review."
-                  : "Signals and evidence, with human approval."}
-            </span>
-            <Link
-              to={
-                role === "Student" ? "/s6" : role === "Teacher" ? "/t5" : "/f3"
+            <small>
+              {role === "Student" ? "Current learning goal" : "Role workspace"}
+            </small>
+          </span>
+        </div>
+        <div className="nav-caption">
+          {role === "Student"
+            ? "YOUR WORKSPACE"
+            : role === "Teacher"
+              ? "TEACHING WORKSPACE"
+              : "COMPANY WORKSPACE"}
+        </div>
+        <nav className="navigation" aria-label={`${role} workspace`}>
+          {nav[role].map(([path, label, Icon]) => (
+            <NavLink
+              key={path}
+              to={path}
+              onClick={closeMenu}
+              className={({ isActive }) =>
+                `nav-item ${isActive ? "selected" : ""}`
               }
             >
-              Open workspace <ArrowUpRight size={13} />
-            </Link>
-          </div>
+              <Icon size={17} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="sidebar-spacer" />
+        <div className="assistant-hint">
+          <Sparkles size={16} />
+          <strong>
+            {role === "Student"
+              ? "Learning assistant"
+              : role === "Teacher"
+                ? "Teaching assistant"
+                : "Technical manager"}
+          </strong>
+          <span>
+            {role === "Student"
+              ? "Answers, sources and practice at your level."
+              : role === "Teacher"
+                ? "Evidence and materials, ready for your review."
+                : "Signals and evidence, with human approval."}
+          </span>
+          <Link
+            onClick={closeMenu}
+            to={role === "Student" ? "/s6" : role === "Teacher" ? "/t5" : "/f3"}
+          >
+            Open workspace <ArrowUpRight size={13} />
+          </Link>
         </div>
-        <button className="sign-out" onClick={logout}>
-          <LogOut size={15} /> Sign out
-        </button>
-      </aside>
+      </div>
+      <button
+        className="sign-out"
+        onClick={() => {
+          closeMenu?.()
+          logout()
+        }}
+      >
+        <LogOut size={15} /> Sign out
+      </button>
+    </>
+  )
+  return (
+    <div className="app-shell" data-motion={motionOn ? "on" : "off"}>
+      {!isMobile && <aside className="sidebar">{sidebarContent()}</aside>}
       <div className="main-column">
         <header className="topbar">
-          <div>
+          <div className="breadcrumbs">
             <span>{role}</span>
             <span className="crumb-sep">/</span>
             <strong>{names[location.pathname] || "Workspace"}</strong>
@@ -185,14 +201,14 @@ function Shell({ role }: { role: Role }) {
                 className={theme !== "dark" ? "active" : ""}
                 onClick={() => setTheme("light")}
               >
-                <Sun size={14} /> Day
+                <Sun size={14} /> <span>Day</span>
               </button>
               <button
                 aria-label="Night theme"
                 className={theme === "dark" ? "active" : ""}
                 onClick={() => setTheme("dark")}
               >
-                <Moon size={14} /> Night
+                <Moon size={14} /> <span>Night</span>
               </button>
             </div>
             <div className="user-chip">
@@ -207,6 +223,12 @@ function Shell({ role }: { role: Role }) {
                 <small>{role}</small>
               </div>
             </div>
+            {isMobile && (
+              <MobileNavigation
+                key={location.key}
+                renderContent={sidebarContent}
+              />
+            )}
           </div>
         </header>
         <main className="content">
@@ -234,6 +256,52 @@ function Shell({ role }: { role: Role }) {
         </motion.div>
       )}
     </div>
+  )
+}
+const MOBILE_QUERY = "(max-width: 660px)"
+function mobileSnapshot() {
+  return window.matchMedia(MOBILE_QUERY).matches
+}
+function subscribeToMobile(notify: () => void) {
+  const query = window.matchMedia(MOBILE_QUERY)
+  query.addEventListener("change", notify)
+  return () => query.removeEventListener("change", notify)
+}
+function MobileNavigation({
+  renderContent,
+}: {
+  renderContent: (close: () => void) => ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger asChild>
+        <button
+          className="mobile-menu-trigger"
+          aria-label="Open navigation menu"
+        >
+          <Menu size={22} aria-hidden="true" />
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="mobile-menu-overlay" />
+        <Dialog.Content
+          className="sidebar mobile-navigation"
+          aria-describedby={undefined}
+        >
+          <Dialog.Title className="sr-only">Navigation menu</Dialog.Title>
+          <Dialog.Close asChild>
+            <button
+              className="mobile-menu-close"
+              aria-label="Close navigation menu"
+            >
+              <X size={22} aria-hidden="true" />
+            </button>
+          </Dialog.Close>
+          {renderContent(() => setOpen(false))}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }
 function ReactUseMotion(): [boolean, (v: boolean) => void] {
