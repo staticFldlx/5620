@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   Clock3,
   MessageSquareText,
+  Plus,
   RefreshCw,
   Sparkles,
   Target,
@@ -180,6 +181,8 @@ function MaterialButton({ material }: { material: Material }) {
 }
 export function StudentOverview() {
   const { student, lessons, materials, user } = useStudent()
+  const [quickOpen, setQuickOpen] = useState(false)
+  const [quickView, setQuickView] = useState<"details" | "materials">("details")
   const next = lessons.find((x) => x.status === "confirmed") || lessons.at(-1)
   const plan = student?.plan
   const confirmed = latestConfirmed(student)
@@ -302,25 +305,128 @@ export function StudentOverview() {
               <Link className="action secondary" to="/s6">
                 Ask assistant
               </Link>
+              {next && (
+                <button
+                  className="action secondary lesson-plus"
+                  type="button"
+                  aria-label={
+                    quickOpen ? "Close lesson actions" : "Expand lesson actions"
+                  }
+                  aria-expanded={quickOpen}
+                  aria-controls="overview-lesson-actions"
+                  onClick={() => setQuickOpen((open) => !open)}
+                >
+                  <Plus size={19} />
+                </button>
+              )}
             </div>
+            {next && quickOpen && (
+              <section
+                id="overview-lesson-actions"
+                className="overview-lesson-actions"
+                aria-label="Lesson quick actions"
+              >
+                <div className="quick-action-row">
+                  <button
+                    className="choice"
+                    aria-pressed={quickView === "details"}
+                    onClick={() => setQuickView("details")}
+                  >
+                    Details
+                  </button>
+                  <button
+                    className="choice"
+                    aria-pressed={quickView === "materials"}
+                    onClick={() => setQuickView("materials")}
+                  >
+                    Materials
+                  </button>
+                  {next.status === "confirmed" && (
+                    <Link className="action secondary" to="/s5">
+                      Change time <ArrowRight size={14} />
+                    </Link>
+                  )}
+                </div>
+                {quickView === "details" ? (
+                  <div className="quick-action-content">
+                    <strong>{next.title}</strong>
+                    <p>
+                      {date(next.starts_at)} – {date(next.ends_at)} (Sydney
+                      time)
+                    </p>
+                    <p>Teacher: {next.teacher.name}</p>
+                    {next.feedback && <p>{next.feedback}</p>}
+                  </div>
+                ) : (
+                  <div className="quick-action-content">
+                    <strong>Approved materials</strong>
+                    {materials.some((material) =>
+                      next.material_ids.includes(material.id)
+                    ) ? (
+                      materials
+                        .filter((material) =>
+                          next.material_ids.includes(material.id)
+                        )
+                        .map((material) => (
+                          <MaterialButton
+                            key={material.id}
+                            material={material}
+                          />
+                        ))
+                    ) : (
+                      <p>No approved materials for this lesson yet.</p>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
           </div>
           <AIVisual />
         </Panel>
-        <Panel title="Your learning path">
+        <Panel title="Your learning path" className="overview-path">
           <p className="muted">
             {student?.profile.goal_summary || "Set your goal"}
           </p>
           {plan ? (
             <>
-              <div className="stage-track">
+              <div className="path-stage-list" aria-label="Learning stages">
                 {plan.stages.map((stage, i) => (
-                  <span
-                    key={stage.title}
-                    className={i <= plan.stage_index ? "filled" : ""}
-                  />
+                  <details
+                    key={`${plan.id}:${i}`}
+                    className={`path-stage ${stage.status}`}
+                    open={stage.status === "current"}
+                  >
+                    <summary>
+                      <span className="path-stage-number" aria-hidden="true">
+                        {stage.status === "completed" ? (
+                          <Check size={14} />
+                        ) : (
+                          String(i + 1).padStart(2, "0")
+                        )}
+                      </span>
+                      <span className="path-stage-title">
+                        {stage.title}
+                        <small>
+                          {stage.status === "current"
+                            ? "Current stage"
+                            : stage.status === "completed"
+                              ? "Completed"
+                              : "Upcoming"}{" "}
+                          · Weeks {stage.start_week}–{stage.end_week}
+                        </small>
+                      </span>
+                      <span className="path-stage-toggle" aria-hidden="true" />
+                    </summary>
+                    <div className="path-stage-detail">
+                      {stage.topics.length > 0 && (
+                        <p>{stage.topics.join(" · ")}</p>
+                      )}
+                      <p>Milestone: {stage.milestone}</p>
+                    </div>
+                  </details>
                 ))}
               </div>
-              <p>
+              <p className="path-progress-note">
                 {plan.status === "completed"
                   ? `All ${plan.stages.length} stages completed`
                   : `Stage ${plan.stage_index + 1} of ${plan.stages.length}`}
@@ -951,13 +1057,31 @@ export function StudentPlan() {
               </div>
               <div className="stages">
                 {displayPlan.stages.map((stage, i) => (
-                  <div
+                  <details
+                    open={
+                      stage.status === "current" ||
+                      i === displayPlan.stage_index
+                    }
                     className={`stage-card ${stage.status === "current" ? "current" : ""}`}
                     key={stage.title}
                   >
-                    <span>{String(i + 1).padStart(2, "0")}</span>
-                    <div>
-                      <h3>{stage.title}</h3>
+                    <summary>
+                      <span>
+                        {String(i + 1).padStart(2, "0")} · {stage.title}
+                      </span>
+                      <Pill
+                        tone={
+                          stage.status === "completed"
+                            ? "good"
+                            : i === displayPlan.stage_index
+                              ? "info"
+                              : "neutral"
+                        }
+                      >
+                        {stage.status}
+                      </Pill>
+                    </summary>
+                    <div className="stage-body">
                       <small>
                         Weeks {stage.start_week}–{stage.end_week} ·{" "}
                         {stage.topics.join(" · ")}
@@ -994,18 +1118,7 @@ export function StudentPlan() {
                           </p>
                         )}
                     </div>
-                    <Pill
-                      tone={
-                        stage.status === "completed"
-                          ? "good"
-                          : i === displayPlan.stage_index
-                            ? "info"
-                            : "neutral"
-                      }
-                    >
-                      {stage.status}
-                    </Pill>
-                  </div>
+                  </details>
                 ))}
               </div>
             </>

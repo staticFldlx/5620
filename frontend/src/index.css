@@ -1545,7 +1545,7 @@ select {
     max-width: 65%;
   }
 }
-@media (max-width: 660px) {
+@media (max-width: 760px) {
   .app-shell {
     display: block;
   }

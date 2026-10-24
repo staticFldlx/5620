@@ -258,7 +258,7 @@ function Shell({ role }: { role: Role }) {
     </div>
   )
 }
-const MOBILE_QUERY = "(max-width: 660px)"
+const MOBILE_QUERY = "(max-width: 760px)"
 function mobileSnapshot() {
   return window.matchMedia(MOBILE_QUERY).matches
 }
@@ -463,8 +463,7 @@ export function RoleDirectory() {
         <span className="eyebrow">LINGOPATH · STAGE ONE</span>
         <h1>One connected learning journey.</h1>
         <p>
-          Explore the 18 core screens with demo data. Choose a role to enter its
-          workspace.
+          Choose a role to sign in to its workspace.
         </p>
         <AIVisual />
       </div>
@@ -504,6 +503,7 @@ export function RoleDirectory() {
         ))}
       </div>
       <div className="directory-foot">
+        <Link to="/">Back home</Link>
         <Link to="/p01">Sign in</Link>
         <Link to="/p02">Create student account</Link>
         <span>2 public pages · 7 student · 5 teacher · 4 Founder</span>
