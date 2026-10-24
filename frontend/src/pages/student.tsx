@@ -913,12 +913,15 @@ export function StudentAssessments() {
 }
 export function StudentPlan() {
   const { student } = useStudent()
-  const { run, busy } = useApp()
+  const { run, busy, workspace } = useApp()
   const [reason, setReason] = useState("")
   const plan = student?.plan
   const displayPlan = plan || student?.pending_plan
   const pending = student?.pending_plan
   const [withdrawId, setWithdrawId] = useState<string | null>(null)
+  const choice = workspace?.plan_choice
+  const [slotId, setSlotId] = useState("")
+  const timezone = student?.profile.timezone || "Australia/Sydney"
   return (
     <Page
       eyebrow="PERSONALISED PLAN"
@@ -1025,7 +1028,9 @@ export function StudentPlan() {
                   ? plan.status === "completed"
                     ? "Your learning plan is complete."
                     : "Your approved plan is active."
-                  : "Complete your goal and assessment. Your teacher will review the first plan."}
+                  : choice
+                    ? "Choose a lesson time below to finish your plan."
+                    : "Complete your goal and assessment. Your teacher will review the first plan."}
             </p>
             {plan?.progress_message && (
               <p role="status">{plan.progress_message}</p>
@@ -1039,6 +1044,65 @@ export function StudentPlan() {
               </span>
             </div>
           </Panel>
+          {choice && (
+            <Panel title="Choose a lesson time">
+              <p>
+                Your available times do not overlap with your teacher&apos;s.
+                Pick one of these times; each stage&apos;s lesson will be on the
+                same weekday and time.
+              </p>
+              <fieldset>
+                <legend>Offered times ({timezone})</legend>
+                {choice.slots.map((option) => (
+                  <label
+                    className="record-card"
+                    key={option.id}
+                    style={{ display: "flex", alignItems: "center", gap: 12 }}
+                  >
+                    <input
+                      type="radio"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        flexShrink: 0,
+                        margin: 0,
+                      }}
+                      name="plan-lesson-time"
+                      value={option.id}
+                      checked={slotId === option.id}
+                      disabled={busy}
+                      onChange={() => setSlotId(option.id)}
+                    />
+                    <span>
+                      {formatSlotTime(option.starts_at, timezone)} –{" "}
+                      {formatSlotTime(option.ends_at, timezone)}
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <div className="button-row">
+                <Button
+                  className="action primary"
+                  disabled={busy || !slotId}
+                  onClick={async () => {
+                    const response = await run(
+                      () =>
+                        api.request(
+                          choice.request_type,
+                          { slot: slotId },
+                          undefined,
+                          choice.request_id
+                        ),
+                      "Lesson time confirmed. Your plan has been sent to your teacher for review."
+                    )
+                    if (response) setSlotId("")
+                  }}
+                >
+                  Confirm time
+                </Button>
+              </div>
+            </Panel>
+          )}
           {plan && pending ? (
             <Panel title="Your change request">
               <Pill tone="warn">
@@ -1164,7 +1228,7 @@ export function StudentPlan() {
                 View learning record
               </Link>
             </Panel>
-          ) : (
+          ) : choice && !student?.pending_plan ? null : (
             <Panel title="Next step">
               <p>
                 {student?.pending_plan
@@ -1196,6 +1260,17 @@ type SlotCheck = {
   teacher_availability?: { day: string; start: string; end: string }[]
   teacher_timezone?: string
 }
+function formatSlotTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: timezone,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value))
+}
 function LessonTimeChange({
   lesson,
   timezone,
@@ -1207,16 +1282,7 @@ function LessonTimeChange({
   const [slot, setSlot] = useState("")
   const [check, setCheck] = useState<SlotCheck | null>(null)
   const [chosen, setChosen] = useState("")
-  const formatTime = (value: string) =>
-    new Intl.DateTimeFormat("en-AU", {
-      timeZone: timezone,
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(value))
+  const formatTime = (value: string) => formatSlotTime(value, timezone)
   return (
     <>
       <h3>Change this time</h3>

@@ -55,6 +55,27 @@ def request_awaiting_session(session_id: str) -> ServiceRequest | None:
     return None
 
 
+def _plan_time_choices() -> QuerySet[AgentTask]:
+    """Planning tasks paused until the student picks a plan lesson time (a single-lesson reschedule has a lesson_id)."""
+    return AgentTask.objects.filter(
+        status=AgentTask.Status.NEEDS_INPUT,
+        target_agent="planning",
+        result__phase="student_choose_slot",
+        result__result__lesson_id="",
+        request__status=ServiceRequest.Status.AWAITING_INPUT,
+    )
+
+
+def plan_time_choice(student: Any) -> AgentTask | None:
+    """The student's own request waiting for them to choose a plan lesson time (only the requester can answer)."""
+    return _plan_time_choices().filter(student=student, request__actor=student).select_related("request").order_by("-created_at").first()
+
+
+def students_awaiting_plan_choice(teacher: Any) -> set[Any]:
+    """Students whose plan draft already names this teacher and only waits for the student's time choice."""
+    return set(_plan_time_choices().filter(result__teacher_id=str(teacher.pk), student__isnull=False).values_list("student_id", flat=True))
+
+
 def latest_task_for_agent(agent_id: str) -> AgentTask | None:
     return AgentTask.objects.filter(target_agent=agent_id).order_by("-created_at").first()
 

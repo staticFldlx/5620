@@ -217,15 +217,28 @@ class PlanningAgent(AIAgent):
                    "teacher_feedback": data.decision.note if data.decision else "",
                    "progress": [{"kind": e.kind, "payload": e.payload} for e in learning.history(student,
                        kinds=("material_completed", "lesson_feedback", "observation")).order_by("-created_at")[:10]]}
-        draft = self.runtime.structured(SYSTEM, [Message(role="user", content=json.dumps(context, default=str))], PlanDraft, max_tokens=3500)
+        messages = [Message(role="user", content=json.dumps(context, default=str))]
+        draft = self.runtime.structured(SYSTEM, messages, PlanDraft, max_tokens=3500)
         if draft is None:
             unavailable = any(s.get("step") == "llm" and s.get("stop") == "error" for s in self.runtime.trace)
             return failed("llm_unavailable" if unavailable else "invalid_llm_output", "No validated plan draft was produced.")
         try:
             stages = validate_curriculum(draft, courses, budget)
         except ValueError as exc:
-            self.runtime.note("invalid_curriculum", error=str(exc))
-            return failed("invalid_curriculum", str(exc))
+            # One corrective round: the model sees the broken catalogue rule and re-plans.
+            self.runtime.note("invalid_curriculum", error=str(exc), attempt=1, stage_courses=stage_courses(draft))
+            messages += [Message(role="assistant", content=draft.model_dump_json()),
+                         Message(role="user", content=f"The plan broke a catalogue rule: {exc}. Return a corrected plan that follows every rule.")]
+            corrected = self.runtime.structured(SYSTEM, messages, PlanDraft, max_tokens=3500)
+            if corrected is None:
+                return failed("invalid_curriculum", str(exc))
+            try:
+                stages = validate_curriculum(corrected, courses, budget)
+            except ValueError as again:
+                self.runtime.note("invalid_curriculum", error=str(again), attempt=2, stage_courses=stage_courses(corrected))
+                return failed("invalid_curriculum", str(again))
+            self.runtime.note("curriculum_corrected", stage_courses=stage_courses(corrected))
+            draft = corrected
         schedule, selected = None, None
         for candidate in teachers:
             if data.reply and (data.previous or {}).get("teacher_id") != str(candidate.pk):
@@ -570,6 +583,11 @@ def validate_curriculum(draft, courses, budget):
         stages.append({**stage.model_dump(exclude={"course_codes"}), "courses": selected})
         last_week = stage.end_week
     return stages
+
+
+def stage_courses(draft):
+    """Course codes per stage, in order, e.g. [["CAT-01"], ["CAT-02", "CAT-03"]] (for the trace)."""
+    return [list(stage.course_codes) for stage in draft.stages]
 
 
 def fits_student(start, end, prefs, tz):
