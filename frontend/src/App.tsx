@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from "react-router"
 import { AppProvider } from "@/app-context"
 import { Guard, RoleDirectory } from "@/components/layout"
+import { HomePage } from "@/pages/home"
 import { AuthPage } from "@/pages/auth"
 import {
   StudentOverview,
@@ -29,7 +30,8 @@ export default function App() {
     <BrowserRouter>
       <AppProvider>
         <Routes>
-          <Route path="/" element={<RoleDirectory />} />
+          <Route path="/" element={<HomePage />} />
+          <Route path="/workspaces" element={<RoleDirectory />} />
           <Route path="/p01" element={<AuthPage />} />
           <Route path="/p02" element={<AuthPage register />} />
           <Route element={<Guard role="Student" />}>

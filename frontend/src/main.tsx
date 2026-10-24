@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { ThemeProvider } from "@/components/theme-provider"
 import App from "./App"
 import "./index.css"
+import "./precision.css"
 
 async function start() {
   if (import.meta.env.VITE_USE_MOCK_API !== "false") {
