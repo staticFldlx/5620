@@ -10,19 +10,30 @@ import { useNavigate } from "react-router"
 import { requestFeedback } from "@/api/request-feedback"
 import { api, sessionStore } from "@/api/client"
 import type { User, Workspace } from "@/api/types"
+import type { AIActivityKind } from "@/lib/ai-activity"
 
 type AppState = {
   user: User | null
   workspace: Workspace | null
   loading: boolean
   busy: boolean
+  aiActivity: AIActivityKind | null
   notice: string
   noticeHref: string
   refresh: () => Promise<void>
   login: (email: string, password: string) => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
   logout: () => void
-  run: <T>(work: () => Promise<T>, success?: string) => Promise<T | undefined>
+  run: <T>(
+    work: () => Promise<T>,
+    success?: string,
+    activity?: AIActivityKind
+  ) => Promise<T | undefined>
+  runAI: <T>(
+    activity: AIActivityKind,
+    work: () => Promise<T>,
+    success?: string
+  ) => Promise<T | undefined>
   clearNotice: () => void
 }
 const Context = createContext<AppState | null>(null)
@@ -34,6 +45,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null)
   const [loading, setLoading] = useState(!!sessionStore.get())
   const [busy, setBusy] = useState(false)
+  const [aiActivity, setAIActivity] = useState<AIActivityKind | null>(null)
   const [notice, setNotice] = useState("")
   const [noticeHref, setNoticeHref] = useState("")
   const refresh = useCallback(async () => {
@@ -92,7 +104,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotice("")
     navigate("/p01")
   }
-  const run = async <T,>(work: () => Promise<T>, success?: string) => {
+  const run = async <T,>(
+    work: () => Promise<T>,
+    success?: string,
+    activity?: AIActivityKind
+  ) => {
+    setAIActivity(activity ?? null)
     setBusy(true)
     setNotice("Processing your request…")
     setNoticeHref("")
@@ -116,6 +133,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       return undefined
     } finally {
+      setAIActivity(null)
       setBusy(false)
     }
   }
@@ -126,6 +144,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         workspace,
         loading,
         busy,
+        aiActivity,
         notice,
         noticeHref,
         refresh,
@@ -133,6 +152,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         register,
         logout,
         run,
+        runAI: (activity, work, success) => run(work, success, activity),
         clearNotice: () => {
           setNotice("")
           setNoticeHref("")

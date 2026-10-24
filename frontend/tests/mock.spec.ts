@@ -47,13 +47,13 @@ test("offline demo retains directed assessments and agent controls", async ({
   const card = page
     .locator(".agent-card")
     .filter({ has: page.getByText("Teaching Assistant", { exact: true }) })
-  await card.getByRole("button", { name: "Pause", exact: true }).click()
+  await card.getByRole("button", { name: "Pause agent", exact: true }).click()
   await expect(
-    card.getByRole("button", { name: "Resume", exact: true })
+    card.getByRole("button", { name: "Resume agent", exact: true })
   ).toBeVisible()
-  await card.getByRole("button", { name: "Resume", exact: true }).click()
+  await card.getByRole("button", { name: "Resume agent", exact: true }).click()
   await expect(
-    card.getByRole("button", { name: "Pause", exact: true })
+    card.getByRole("button", { name: "Pause agent", exact: true })
   ).toBeVisible()
   expect(errors).toEqual([])
 })

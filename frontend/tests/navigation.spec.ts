@@ -9,7 +9,9 @@ async function login(page: Page, email = "ivy.lin@example.com") {
   await page.evaluate(() => document.fonts.ready)
 }
 
-test("desktop navigation appearance is unchanged", async ({ page }) => {
+test("desktop precision workspace keeps navigation and sign out accessible", async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await login(page)
   await expect(page.locator("aside.sidebar")).toBeVisible()
@@ -21,12 +23,12 @@ test("desktop navigation appearance is unchanged", async ({ page }) => {
   ).toBeVisible()
   const sidebar = await page.locator("aside.sidebar").boundingBox()
   const header = await page.locator(".topbar").boundingBox()
-  expect(sidebar!.width).toBe(235)
-  expect(header!.x).toBe(235)
+  expect(sidebar!.width).toBe(190)
+  expect(header!.x).toBe(190)
   await expect(page.getByRole("button", { name: "Sign out" })).toBeInViewport()
 })
 
-for (const width of [320, 390, 660]) {
+for (const width of [320, 390, 660, 760]) {
   test(`mobile menu at ${width}px supports navigation and dismissal`, async ({
     page,
   }) => {

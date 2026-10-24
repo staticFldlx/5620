@@ -5,11 +5,14 @@ import {
   CalendarDays,
   ClipboardCheck,
   Sparkles,
+  Trash2,
   Users,
 } from "lucide-react"
 import { AssessmentAnswers } from "@/components/assessment-answers"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
+import { AIButton } from "@/components/ai-button"
+import { GeneratedText } from "@/components/generated-text"
 import type {
   Assessment,
   Interaction,
@@ -150,7 +153,7 @@ export function TeacherOverview() {
 }
 export function TeacherStudents() {
   const { students } = useTeacher()
-  const { run, busy } = useApp()
+  const { run, runAI, busy } = useApp()
   const ids = Object.keys(students)
   const [selected, setSelected] = useState(ids[0] || "")
   const student = students[selected]
@@ -292,11 +295,13 @@ export function TeacherStudents() {
                         placeholder="For example: add more guided reading practice because the latest assessment shows difficulty identifying evidence."
                       />
                     </label>
-                    <Button
+                    <AIButton
+                      pendingLabel="Preparing revision…"
                       className="action primary"
                       disabled={busy || !revisionReason.trim()}
                       onClick={async () => {
-                        const result = await run(
+                        const result = await runAI(
+                          "plan",
                           () =>
                             api.request(
                               "revise_plan",
@@ -309,7 +314,7 @@ export function TeacherStudents() {
                       }}
                     >
                       Submit plan revision <ArrowRight size={15} />
-                    </Button>
+                    </AIButton>
                   </>
                 )}
                 <Link className="action secondary" to="/t4">
@@ -346,11 +351,12 @@ export function TeacherStudents() {
           </Panel>
           <Panel title="AI progress support">
             <div className="button-row">
-              <Button
+              <AIButton
+                pendingLabel="Analysing…"
                 className="action secondary"
                 disabled={busy}
                 onClick={async () => {
-                  const result = await run(() =>
+                  const result = await runAI("progress", () =>
                     api.request("review_progress", {}, selected)
                   )
                   if (result)
@@ -358,12 +364,13 @@ export function TeacherStudents() {
                 }}
               >
                 Review progress <Sparkles size={15} />
-              </Button>
-              <Button
+              </AIButton>
+              <AIButton
+                pendingLabel="Preparing…"
                 className="action secondary"
                 disabled={busy}
                 onClick={async () => {
-                  const result = await run(() =>
+                  const result = await runAI("recommendation", () =>
                     api.request("recommend_plan", {}, selected)
                   )
                   if (result)
@@ -371,9 +378,13 @@ export function TeacherStudents() {
                 }}
               >
                 Recommend plan
-              </Button>
+              </AIButton>
             </div>
-            {recommendation && <Status>{recommendation}</Status>}
+            {recommendation && (
+              <Status>
+                <GeneratedText text={recommendation} />
+              </Status>
+            )}
             <div className="divider" />
             <h3>Directed assessment</h3>
             <label className="field-label">
@@ -384,18 +395,20 @@ export function TeacherStudents() {
                 placeholder="Evidence-to-claim connection"
               />
             </label>
-            <Button
+            <AIButton
+              pendingLabel="Preparing…"
               className="action primary"
               disabled={busy || !focus.trim()}
               onClick={() =>
-                run(
+                runAI(
+                  "assessment",
                   () => api.startAssessment(selected, "directed", focus),
                   "Directed assessment created."
                 )
               }
             >
               Request assessment <ArrowRight size={15} />
-            </Button>
+            </AIButton>
           </Panel>
         </div>
       </div>
@@ -414,6 +427,7 @@ export function TeacherLessons() {
   )
   const [feedback, setFeedback] = useState("")
   const [slots, setSlots] = useState(availability)
+  const [savedSlotCount, setSavedSlotCount] = useState(availability.length)
   return (
     <Page
       eyebrow="LESSONS & AVAILABILITY"
@@ -502,51 +516,77 @@ export function TeacherLessons() {
               <AIVisual variant="path" />
             </div>
             {slots.map((slot, i) => (
-              <div className="slot-row" key={i}>
-                <select
-                  aria-label={`Day ${i + 1}`}
-                  value={slot.day}
-                  onChange={(e) =>
-                    setSlots(
-                      slots.map((x, n) =>
-                        n === i ? { ...x, day: e.target.value } : x
+              <div className="availability-entry" key={i}>
+                <div className="slot-row">
+                  <select
+                    aria-label={`Day ${i + 1}`}
+                    disabled={busy}
+                    value={slot.day}
+                    onChange={(e) =>
+                      setSlots(
+                        slots.map((x, n) =>
+                          n === i ? { ...x, day: e.target.value } : x
+                        )
                       )
-                    )
-                  }
-                >
-                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
-                    (d) => (
-                      <option key={d}>{d}</option>
-                    )
-                  )}
-                </select>
-                <Input
-                  type="time"
-                  value={slot.start}
-                  onChange={(e) =>
-                    setSlots(
-                      slots.map((x, n) =>
-                        n === i ? { ...x, start: e.target.value } : x
+                    }
+                  >
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(
+                      (d) => (
+                        <option key={d}>{d}</option>
                       )
-                    )
-                  }
-                />
-                <Input
-                  type="time"
-                  value={slot.end}
-                  onChange={(e) =>
-                    setSlots(
-                      slots.map((x, n) =>
-                        n === i ? { ...x, end: e.target.value } : x
+                    )}
+                  </select>
+                  <Input
+                    type="time"
+                    aria-label={`Start time ${i + 1}`}
+                    disabled={busy}
+                    value={slot.start}
+                    onChange={(e) =>
+                      setSlots(
+                        slots.map((x, n) =>
+                          n === i ? { ...x, start: e.target.value } : x
+                        )
                       )
-                    )
-                  }
-                />
+                    }
+                  />
+                  <Input
+                    type="time"
+                    aria-label={`End time ${i + 1}`}
+                    disabled={busy}
+                    value={slot.end}
+                    onChange={(e) =>
+                      setSlots(
+                        slots.map((x, n) =>
+                          n === i ? { ...x, end: e.target.value } : x
+                        )
+                      )
+                    }
+                  />
+                </div>
+                {i >= savedSlotCount && (
+                  <div className="availability-draft-actions">
+                    <small>Not saved</small>
+                    <Button
+                      type="button"
+                      className="action secondary availability-remove"
+                      aria-label={`Remove unsaved time ${i + 1}`}
+                      disabled={busy}
+                      onClick={() =>
+                        setSlots((current) =>
+                          current.filter((_, index) => index !== i)
+                        )
+                      }
+                    >
+                      <Trash2 size={14} aria-hidden="true" /> Remove
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
             <div className="button-row">
               <Button
                 className="action secondary"
+                disabled={busy}
                 onClick={() =>
                   setSlots([
                     ...slots,
@@ -560,7 +600,11 @@ export function TeacherLessons() {
                 className="action primary"
                 disabled={busy}
                 onClick={() =>
-                  run(() => api.saveAvailability(slots), "Availability saved.")
+                  run(async () => {
+                    const result = await api.saveAvailability(slots)
+                    setSavedSlotCount(slots.length)
+                    return result
+                  }, "Availability saved.")
                 }
               >
                 Save availability
@@ -604,7 +648,11 @@ export function TeacherReviews() {
     const result = await run(
       () =>
         api.decideReview(selected, action, note, correctedLevel || undefined),
-      "Review decision recorded."
+      "Review decision recorded.",
+      (detail?.review.kind === "plan" && action === "request_changes") ||
+        (detail?.review.kind === "assessment" && action === "confirm_result")
+        ? "plan"
+        : undefined
     )
     if (result) {
       setNote("")
@@ -855,7 +903,7 @@ function LessonPreparation({
   studentName: string
   materials: Material[]
 }) {
-  const { run, busy } = useApp()
+  const { run, runAI, busy } = useApp()
   const selected = lesson.id
   const [briefing, setBriefing] = useState("")
   const [title, setTitle] = useState("Evidence linking practice")
@@ -876,11 +924,12 @@ function LessonPreparation({
         <div className="visual-panel">
           <AIVisual variant="paper" />
         </div>
-        <Button
+        <AIButton
+          pendingLabel="Preparing briefing…"
           className="action primary"
           disabled={busy}
           onClick={async () => {
-            const result = await run(() =>
+            const result = await runAI("briefing", () =>
               api.request(
                 "lesson_briefing",
                 { lesson_id: selected },
@@ -892,10 +941,12 @@ function LessonPreparation({
           }}
         >
           Prepare briefing <Sparkles size={15} />
-        </Button>
+        </AIButton>
         {briefing ? (
           <section aria-label="Generated lesson briefing">
-            <Status>{briefing}</Status>
+            <Status>
+              <GeneratedText text={briefing} />
+            </Status>
           </section>
         ) : (
           <Empty>Prepare a briefing for the selected lesson.</Empty>
@@ -980,11 +1031,13 @@ function LessonPreparation({
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Material title"
         />
-        <Button
+        <AIButton
+          pendingLabel="Creating draft…"
           className="action secondary"
           disabled={busy || !title.trim()}
           onClick={async () => {
-            const result = await run(
+            const result = await runAI(
+              "material",
               () =>
                 api.request(
                   "generate_material",
@@ -1002,7 +1055,7 @@ function LessonPreparation({
           }}
         >
           Generate draft <Sparkles size={15} />
-        </Button>
+        </AIButton>
       </Panel>
     </div>
   )
