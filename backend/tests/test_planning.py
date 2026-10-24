@@ -94,6 +94,29 @@ def test_invalid_business_constraints_never_persist(learner, change):
     assert not LearningPlan.objects.filter(student=learner).exists()
 
 
+def out_of_order():
+    output = draft()  # CAT-02 needs CAT-01 in an earlier stage
+    output["stages"][0]["course_codes"], output["stages"][1]["course_codes"] = ["CAT-02"], ["CAT-01"]
+    return output
+
+
+def test_curriculum_error_is_fed_back_once_and_the_corrected_draft_is_used(learner):
+    consultant = PlanningAgent(make_runtime([out_of_order(), draft()]))
+    result = consultant.execute_task(task(learner))
+    assert result.status == AgentStatus.AWAITING_APPROVAL
+    assert [s.courses.get().code for s in learning.plan_stages(learning.pending_plan(learner))] == ["CAT-01", "CAT-02"]
+    rejected = next(s for s in consultant.runtime.trace if s.get("decision") == "invalid_curriculum")
+    assert rejected["stage_courses"] == [["CAT-02"], ["CAT-01"]] and rejected["error"].endswith("CAT-02")
+    assert "CAT-02" in consultant.runtime.adapter.calls[-1]["messages"][-1].content
+
+
+def test_curriculum_still_invalid_after_feedback_is_rejected(learner):
+    consultant = PlanningAgent(make_runtime([out_of_order(), out_of_order()]))
+    assert consultant.execute_task(task(learner)).reason == "invalid_curriculum"
+    assert not learning.pending_plan(learner)
+    assert [s["attempt"] for s in consultant.runtime.trace if s.get("decision") == "invalid_curriculum"] == [1, 2]
+
+
 def test_invalid_llm_json_is_retried_and_rejected(learner):
     consultant = PlanningAgent(make_runtime(["invalid", "still invalid"]))
     assert consultant.execute_task(task(learner)).reason == "invalid_llm_output"
@@ -540,6 +563,8 @@ def test_slot_request_reference_and_all_external_planning_contracts(learner, rea
     proposed = dispatcher.submit("reschedule", actor=learner, actor_role="student", student=learner,
         input={"lesson_id": str(lesson.pk), "slot": (lesson.starts_at + timedelta(days=1)).isoformat()})
     contracts.validate_result("reschedule", proposed.result, awaiting_input=True)
+    from access_control.gateway import presenters
+    assert presenters.plan_choice_record(learner) is None  # a lesson reschedule is answered on /s5, not the plan page
     confirmed = dispatcher.submit("confirm_slot", actor=learner, actor_role="student", student=learner,
         input={"slot_request_id": str(proposed.pk), "slot_id": proposed.result["slots"][0]["id"]})
     assert confirmed.status == "completed", confirmed.error
@@ -642,6 +667,30 @@ def test_initial_assessment_pipeline_preserves_session_contract_when_paused(lear
     request.refresh_from_db()
     assert request.status == "completed", request.error
     contracts.validate_result("start_assessment", request.result)
+
+
+def test_student_picks_plan_time_when_availability_does_not_overlap(learner, real_runtime, client):
+    from access_control.gateway import presenters
+    from access_control.identity.permissions import assigned_student_ids
+    from tests.conftest import Api
+    teacher = User.objects.get(pk=key("teacher-emily"))
+    services.update_profile("coordinator", learner.learning_profile, preferences={"availability": []})
+    request = assessment_to_planning(learner, learning.latest_confirmed_proficiency(learner))
+    assert request.status == "awaiting_input", request.error
+    choice = presenters.plan_choice_record(learner)
+    assert choice["request_id"] == str(request.pk) and choice["request_type"] == "start_assessment" and choice["slots"]
+    assert learner.pk in assigned_student_ids(teacher)  # the draft already names Emily
+    learner.set_password("longenough")
+    learner.save()
+    student = Api(client).login("planning@example.com", "longenough")
+    assert student.get("/workspace").json()["plan_choice"]["request_id"] == str(request.pk)
+    response = student.post("/requests", {"type": "start_assessment", "context_id": choice["request_id"],
+        "input": {"slot": choice["slots"][0]["id"]}})
+    assert response.status_code == 200, response.content
+    plan = learning.pending_plan(learner)
+    assert plan is not None and plan.teacher_id == teacher.pk
+    assert presenters.plan_choice_record(learner) is None
+    assert EscalationCase.objects.filter(task__request=request, assignee=teacher, status="open").exists()
 
 
 def test_automatic_replan_uses_shared_dispatcher_and_keeps_assessment_contract(learner, real_runtime):

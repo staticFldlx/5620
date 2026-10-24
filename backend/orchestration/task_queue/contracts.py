@@ -257,8 +257,19 @@ class OperationsRecord(Record):
     audit: list[AuditRecord]
 
 
+class PlanChoiceRecord(Record):
+    """A plan request paused until the student picks one of the offered lesson times."""
+
+    request_id: str
+    request_type: str
+    question: str = ""
+    message: str = ""
+    slots: list[Slot] = []
+
+
 class WorkspaceRecord(Record):
     assessment_sessions: list[AssessmentSessionRecord] | None = None
+    plan_choice: PlanChoiceRecord | None = None
     user: UserRecord
     students: dict[str, StudentRecord] | None = None
     lessons: list[LessonRecord] | None = None

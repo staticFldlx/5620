@@ -178,8 +178,18 @@ export type Operations = {
     result: string
   }[]
 }
+// A plan request paused until the student picks one of the offered lesson times.
+// It is answered with the paused request's own type (usually start_assessment).
+export type PlanChoice = {
+  request_id: string
+  request_type: RequestType
+  question: string
+  message: string
+  slots: { id: string; starts_at: string; ends_at: string }[]
+}
 export type Workspace = {
   assessment_sessions?: AssessmentSession[]
+  plan_choice?: PlanChoice | null
   user: User
   students?: Record<string, StudentRecord>
   lessons?: Lesson[]
@@ -204,6 +214,7 @@ export type RequestType =
   | "recommend_plan"
   | "lesson_briefing"
   | "generate_material"
+  | "start_assessment" // only as a reply to a paused request (PlanChoice)
 export type RequestEnvelope = {
   id: string
   type: string
