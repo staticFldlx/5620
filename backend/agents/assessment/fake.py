@@ -41,20 +41,28 @@ def script(task: TaskInput) -> list:
     if session is None:
         return []
     items = [dict(i) for i in session.items]
-    current = next((i for i in items if i.get("item_id") == reply.get("item_id") and i.get("answer") is None), None)
-    if current is None:
+    current = next((i for i in items if i.get("item_id") == reply.get("item_id")), None)
+    if current is None or session.status != "in_progress" or getattr(session, "proficiency", None) is not None:
         return []
-    scored = score_reply(str(reply.get("answer", "")), current)
-    score, _ = adaptive.combine(current["level"], scored["score"], scored["demonstrated_level"], len(scored["met_points"]), len(current.get("expected_points") or []), scored["off_task"])
-    replies: list = [scored]
-    if not scored["off_task"] and adaptive.needs_second_opinion(score):
-        replies.append(scored)  # the agent asks twice near a threshold; the fake scorer is deterministic
-    current.update(answer=reply.get("answer"), score=score, estimate=adaptive.estimate(adaptive.level_index(current["level"]), score))
+    pending = next((i for i in items if i.get("answer") is None), None)
+    if pending is not None and pending is not current:
+        return []  # duplicate reply: the agent returns the already generated next item
+    answer = current["answer"] if current.get("answer") is not None else str(reply.get("answer", ""))
+    replies: list = []
+    if "score" not in current:
+        scored = score_reply(answer, current)
+        score, _ = adaptive.combine(current["level"], scored["score"], scored["demonstrated_level"], len(scored["met_points"]), len(current.get("expected_points") or []), scored["off_task"])
+        replies.append(scored)
+        if not scored["off_task"] and adaptive.needs_second_opinion(score):
+            replies.append(scored)
+        current.update(answer=answer, score=score, estimate=adaptive.estimate(adaptive.level_index(current["level"]), score))
+    score = current.get("score")
     answered = [i for i in items if i.get("answer") is not None]
     estimates = [i["estimate"] for i in answered if i.get("estimate") is not None]
     if adaptive.stop_reason(estimates, len(answered), session.max_items):
-        return [*replies, _report(answered, adaptive.final_level(estimates))]
-    next_level = adaptive.level_name(adaptive.next_index(adaptive.level_index(current["level"]), score))
+        return [*replies, _report(answered, adaptive.final_level(estimates, default=items[0]["level"]))]
+    index = adaptive.level_index(current["level"])
+    next_level = adaptive.level_name(adaptive.next_index(index, score) if score is not None else index)
     planned = items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
     number = len(items) + 1
     return [*replies, _item(adaptive.skill_for(planned, number), next_level, number, len(planned))]
