@@ -37,6 +37,13 @@ from the Docker build context.
    `.env` file into Git. The university VPN-only proxy cannot be reached from
    Render's cloud environment.
 
+   For the official OpenAI API, use `LLM_PROVIDER=openai`,
+   `LLM_BASE_URL=https://api.openai.com/v1`, and
+   `LLM_MODEL_DEFAULT=gpt-5.4-mini`. Set `LLM_API_KEY` to a key created in
+   the OpenAI Platform. `LLM_MODEL_FAST` can use the same model or be left
+   unset. The API account needs active billing; the key belongs only in
+   Render's environment variables, never in the frontend build or Git.
+
 4. Set Health Check Path to `/`. After the first deploy is Live, check `/`, a
    deep frontend link such as `/s1`, and `/api/v1/docs` on the service URL.
    The Docker start command applies migrations and loads demo data only if it

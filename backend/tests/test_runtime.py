@@ -158,9 +158,38 @@ def test_school_adapter_maps_openai_compatible_payloads(monkeypatch):
     response = adapter.complete("sys", user("hi"), model="m", tools=[courses_tool().schema()], max_tokens=50, timeout_s=5)
     assert captured["auth"] == "Bearer secret"
     assert captured["body"]["messages"][0] == {"role": "system", "content": "sys"}
+    assert captured["body"]["max_tokens"] == 50
     assert captured["body"]["tools"][0]["function"]["name"] == "query_courses"
     assert response.stop == "tool_calls" and response.tool_calls[0].args == {"skill": "SQL"}
     assert response.usage == {"input_tokens": 12, "output_tokens": 3}
+
+
+def test_official_openai_uses_max_completion_tokens(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def read(self):
+            return b'{"choices":[{"finish_reason":"stop","message":{"content":"hello"}}]}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data)
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    response = SchoolAdapter("https://api.openai.com/v1", "secret").complete(
+        "sys", user("hi"), model="gpt-5.4-mini", max_tokens=50, timeout_s=5
+    )
+    assert captured["url"] == "https://api.openai.com/v1/chat/completions"
+    assert captured["body"]["max_completion_tokens"] == 50
+    assert "max_tokens" not in captured["body"]
+    assert response.text == "hello"
 
 
 def test_school_adapter_retries_then_fails(monkeypatch):

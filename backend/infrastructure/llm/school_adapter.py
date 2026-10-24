@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterable
+from urllib.parse import urlparse
 
 from .base import LLMAdapter, LLMError, LLMResponse, Message, ToolCall, ToolSchema
 
@@ -33,6 +34,7 @@ class SchoolAdapter(LLMAdapter):
         if not base_url:
             raise LLMError("LLM_BASE_URL is not configured")
         self.base_url = base_url.rstrip("/")
+        self.official_openai = urlparse(self.base_url).hostname == "api.openai.com"
         self.api_key = api_key
         self.capabilities = frozenset(capabilities)
         self.max_retries = max_retries
@@ -40,7 +42,7 @@ class SchoolAdapter(LLMAdapter):
     def complete(self, system, messages, *, model, tools=None, json_schema=None, max_tokens, timeout_s) -> LLMResponse:
         body: dict = {
             "model": model,
-            "max_tokens": max_tokens,
+            "max_completion_tokens" if self.official_openai else "max_tokens": max_tokens,
             "messages": [{"role": "system", "content": system}, *(_to_openai(m) for m in messages)],
         }
         if tools and "tools" in self.capabilities:
