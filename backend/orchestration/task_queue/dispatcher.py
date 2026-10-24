@@ -293,7 +293,8 @@ def _pause(task: AgentTask, status: str, *, case: Any = None) -> None:
         if isinstance(plan, dict) and not plan.get("review_id"):
             plan["review_id"] = str(case.pk)
     try:
-        contracts.validate_result(request.type, result, awaiting_input=status == RequestStatus.AWAITING_INPUT)
+        contracts.validate_result(request.type, result, awaiting_input=status == RequestStatus.AWAITING_INPUT,
+            escalated=status == RequestStatus.ESCALATED)
     except contracts.ContractError as exc:
         return _fail_request(request, "invalid_result", f"Result does not match the {request.type} contract: {exc}")
     phase = str((task.result or {}).get("phase") or {RequestStatus.AWAITING_INPUT: "awaiting_input"}.get(status, status))

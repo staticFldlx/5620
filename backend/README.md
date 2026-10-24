@@ -178,8 +178,8 @@ tests/             pytest
 | `planning.propose_slot` / `planning.book_slot` | 学生改课时：检查冲突，冲突时给出可选时间，学生确认后再改 |
 
 - **起草**：一次结构化调用，输入学生档案、已确认的测评、课程目录（通过只读工具读取）、上一版计划和修改理由；输出分阶段计划。代码再校验每周时数不超过预算、阶段连续、课程真实存在、先修课程在更早的阶段。
-- **匹配教师**：候选是学生当前的教师和接待教师，按教师 `subject_areas` 与学习目标的关键词匹配；没有匹配时交给 Founder（`teacher_unavailable`），Founder 选 `widen_match` 后放宽条件。
-- **排课**：只在学生和教师的每周可用时间内找时间，并用 `check_lesson_slot` 检查冲突（NFR-03）；都排不下时给学生几个可选时间（`NEEDS_INPUT`）。
+- **匹配教师**：优先沿用学生当前教师，其次使用接待教师，再考虑其他可用教师。演示环境只有一位教师，目标文字与教师 `subject_areas` 不完全相同也不会阻止计划送审；确实没有可用教师时才交给 Founder（`teacher_unavailable`）。
+- **排课**：先找学生与教师共同可用的时间，并用 `check_lesson_slot` 检查冲突（NFR-03）。若没有重合时间，先在未来 90 天的教师空档中安排并送教师审核；教师批准后学生可在 Lessons 中申请改期。确实没有无冲突的教师时段时返回 `no_available_slots`。
 - 计划先以 `pending_review` 保存，必须由教师批准才生效（`AWAITING_APPROVAL`）。
 
 ### 5.4 AI Teaching Assistant（`agents/teaching_support/`）

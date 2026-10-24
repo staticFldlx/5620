@@ -1193,6 +1193,11 @@ export function StudentPlan() {
                 Weekly hours<strong>{displayPlan?.weekly_hours || 0}</strong>
               </span>
             </div>
+            {plan?.status === "active" && (
+              <p>
+                If a lesson time does not work for you, open <Link to="/s5">Lessons</Link> to request a different time.
+              </p>
+            )}
           </Panel>
           {choice && (
             <Panel title="Choose a lesson time">
