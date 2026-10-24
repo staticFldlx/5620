@@ -72,3 +72,4 @@ VITE_API_BASE_URL=http://localhost:8000/api/v1
 
 - [后端 README](backend/README.md)：配置、命令、架构、五个 agent 的工作方式、API、演示数据、测试和部署。
 - [前端 README](frontend/README.md)：运行方式、连接后端、离线演示模式、页面列表。
+- [Render 部署说明](docs/render-deployment.md)：单个 Web Service 同时提供前端与 API，连接持久化 PostgreSQL。

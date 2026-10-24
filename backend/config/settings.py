@@ -57,6 +57,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "access_control.gateway.middleware.RequestIdMiddleware",
     "access_control.gateway.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -71,6 +72,10 @@ if not DEBUG:
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
+# The Docker build copies Vite's dist directory here. WhiteNoise serves its
+# versioned JS/CSS assets; Django serves index.html for client-side routes.
+FRONTEND_DIST = Path(env("FRONTEND_DIST", str(BASE_DIR / "frontend_dist")))
+WHITENOISE_ROOT = FRONTEND_DIST if FRONTEND_DIST.is_dir() else None
 TEMPLATES: list = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
@@ -88,7 +93,7 @@ def _database() -> dict:
     if url.startswith(("postgres://", "postgresql://")):
         parsed = urlparse(url)
         return {
-            "ENGINE": "django.db.backends.postgresql",  # requires psycopg, not installed by default
+            "ENGINE": "django.db.backends.postgresql",
             "NAME": parsed.path.lstrip("/"),
             "USER": unquote(parsed.username or ""),
             "PASSWORD": unquote(parsed.password or ""),
