@@ -75,14 +75,11 @@ def test_generation_is_personalised_grounded_and_pending(learner):
     assert learning.history(learner).get().payload["proposed_slots"]
 
 
-@pytest.mark.parametrize("change", ["unknown", "prerequisite", "hours", "weeks", "empty"])
+@pytest.mark.parametrize("change", ["unknown", "hours", "weeks", "empty"])
 def test_invalid_business_constraints_never_persist(learner, change):
     output = draft()
     if change == "unknown":
         output["stages"][0]["course_codes"] = ["MADE-UP"]
-    elif change == "prerequisite":
-        output["stages"] = [output["stages"][1]]
-        output["stages"][0]["start_week"] = 1
     elif change == "hours":
         output["weekly_hours"] = 5
     elif change == "weeks":
@@ -110,11 +107,20 @@ def test_curriculum_error_is_fed_back_once_and_the_corrected_draft_is_used(learn
     assert "CAT-02" in consultant.runtime.adapter.calls[-1]["messages"][-1].content
 
 
-def test_curriculum_still_invalid_after_feedback_is_rejected(learner):
+def test_repeated_prerequisite_error_is_repaired_before_teacher_review(learner):
     consultant = PlanningAgent(make_runtime([out_of_order(), out_of_order()]))
-    assert consultant.execute_task(task(learner)).reason == "invalid_curriculum"
-    assert not learning.pending_plan(learner)
+    assert consultant.execute_task(task(learner)).status == AgentStatus.AWAITING_APPROVAL
+    assert [s.courses.get().code for s in learning.plan_stages(learning.pending_plan(learner))] == ["CAT-01", "CAT-02"]
     assert [s["attempt"] for s in consultant.runtime.trace if s.get("decision") == "invalid_curriculum"] == [1, 2]
+    assert any(s.get("decision") == "curriculum_repaired" for s in consultant.runtime.trace)
+
+
+def test_missing_prerequisite_is_added_before_teacher_review(learner):
+    output = draft()
+    output["stages"] = [{**output["stages"][1], "start_week": 1, "end_week": 2}]
+    consultant = PlanningAgent(make_runtime([output, output]))
+    assert consultant.execute_task(task(learner)).status == AgentStatus.AWAITING_APPROVAL
+    assert [s.courses.get().code for s in learning.plan_stages(learning.pending_plan(learner))] == ["CAT-01", "CAT-02"]
 
 
 def test_invalid_llm_json_is_retried_and_rejected(learner):
@@ -220,6 +226,16 @@ def test_real_dispatcher_review_activation_and_duplicate_decision(learner, real_
     repeated = task(learner, "activate_plan", case_id=str(case.pk), subject_id=str(plan.pk),
         decision={**case.decision, "decided_by": str(case.resolved_by_id)})
     assert agent().execute_task(repeated).status == AgentStatus.OK
+    assert learning.lessons_for_student(learner).count() == 2
+
+
+def test_student_can_retry_plan_after_confirmed_assessment(learner, real_runtime):
+    request = dispatcher.submit("request_plan", actor=learner, actor_role="student", student=learner, input={})
+    assert request.status == "awaiting_approval", request.error
+    assert learning.pending_plan(learner) is not None
+    case = EscalationCase.objects.get(task__request=request)
+    approve(case)
+    assert learning.active_plan(learner) is not None
     assert learning.lessons_for_student(learner).count() == 2
 
 

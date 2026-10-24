@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from domain.common import DomainError, Role
+from domain.governance import selectors as governance
 from domain.learning import selectors as learning
 
 StudentScope = Literal["self", "self_or_student_id", "student_id", "lesson", "none"]
@@ -54,6 +55,16 @@ def _needs_goal(student: Any, _input: dict) -> None:
         raise DomainError("profile_incomplete", "Confirm a learning goal before assessment.")
 
 
+def _needs_confirmed_assessment_without_plan(student: Any, data: dict) -> None:
+    _needs_goal(student, data)
+    if learning.latest_confirmed_proficiency(student) is None:
+        raise DomainError("assessment_missing", "A confirmed assessment is required before preparing a plan.")
+    if learning.active_plan(student) or learning.pending_plan(student):
+        raise DomainError("plan_already_exists", "A plan already exists or is awaiting teacher review.")
+    if governance.plan_time_choice(student):
+        raise DomainError("plan_time_choice_pending", "Choose a lesson time for the plan already being prepared.")
+
+
 def _needs_own_lesson(student: Any, data: dict) -> None:
     lesson_id = data.get("lesson_id")
     lesson = learning.lesson(lesson_id) if lesson_id else None
@@ -73,6 +84,7 @@ _TABLE = [
     # Student requests: Coordinator entry (AR11)
     Pipeline("collect_goal", ("coordinator.collect_goal",), frozenset({S}), "self"),
     Pipeline("confirm_goal", ("coordinator.confirm_goal",), frozenset({S}), "self"),
+    Pipeline("request_plan", ("planning.generate_plan",), frozenset({S}), "self", _needs_confirmed_assessment_without_plan),
     Pipeline("complete_material", ("coordinator.record_material_completion",), frozenset({S}), "self", _needs_own_approved_material),
     Pipeline("explain", ("teaching_support.answer_question",), frozenset({S}), "self"),
     Pipeline("resources", ("teaching_support.retrieve_material",), frozenset({S}), "self"),

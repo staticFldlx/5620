@@ -202,6 +202,7 @@ export type Workspace = {
 export type RequestType =
   | "collect_goal"
   | "confirm_goal"
+  | "request_plan"
   | "revise_plan"
   | "reschedule"
   | "confirm_slot"

@@ -236,8 +236,17 @@ class PlanningAgent(AIAgent):
                 stages = validate_curriculum(corrected, courses, budget)
             except ValueError as again:
                 self.runtime.note("invalid_curriculum", error=str(again), attempt=2, stage_courses=stage_courses(corrected))
-                return failed("invalid_curriculum", str(again))
-            self.runtime.note("curriculum_corrected", stage_courses=stage_courses(corrected))
+                repaired = repair_prerequisite_order(corrected, courses) if str(again).startswith("Prerequisites") else None
+                if repaired is None:
+                    return failed("invalid_curriculum", str(again))
+                try:
+                    stages = validate_curriculum(repaired, courses, budget)
+                except ValueError:
+                    return failed("invalid_curriculum", str(again))
+                self.runtime.note("curriculum_repaired", stage_courses=stage_courses(repaired))
+                corrected = repaired
+            else:
+                self.runtime.note("curriculum_corrected", stage_courses=stage_courses(corrected))
             draft = corrected
         schedule, selected = None, None
         for candidate in teachers:
@@ -588,6 +597,67 @@ def validate_curriculum(draft, courses, budget):
 def stage_courses(draft):
     """Course codes per stage, in order, e.g. [["CAT-01"], ["CAT-02", "CAT-03"]] (for the trace)."""
     return [list(stage.course_codes) for stage in draft.stages]
+
+
+def repair_prerequisite_order(draft, courses):
+    """Conservatively order real catalogue courses after two failed model drafts.
+
+    Teacher approval remains required. Unknown, repeated, cyclic, or otherwise
+    malformed course selections are left for the normal validation failure.
+    """
+    originals = {}
+    last_week = 0
+    for stage in draft.stages:
+        if stage.start_week != last_week + 1 or not stage.course_codes:
+            return None
+        last_week = stage.end_week
+        for code in stage.course_codes:
+            if code not in courses or code in originals:
+                return None
+            originals[code] = stage
+
+    ordered, visited, visiting = [], set(), set()
+
+    def visit(code):
+        if code in visited:
+            return
+        if code in visiting or code not in courses:
+            raise ValueError("Missing or cyclic catalogue prerequisite")
+        visiting.add(code)
+        for prerequisite in courses[code].prerequisites.all():
+            visit(prerequisite.code)
+        visiting.remove(code)
+        visited.add(code)
+        ordered.append(code)
+
+    try:
+        for code in originals:
+            visit(code)
+    except ValueError:
+        return None
+
+    repaired, week = [], 1
+    for code in ordered:
+        course = courses[code]
+        original = originals.get(code)
+        single = original is not None and len(original.course_codes) == 1
+        duration = original.end_week - original.start_week + 1 if original else 1
+        if week + duration - 1 > 104:
+            return None
+        repaired.append({
+            "title": original.title if single else course.title,
+            "topics": original.topics if single else [course.skill or course.title],
+            "milestone": original.milestone if single else f"Demonstrate {course.title} in a teacher-reviewed exercise.",
+            "start_week": week,
+            "end_week": week + duration - 1,
+            "course_codes": [code],
+        })
+        week += duration
+    return PlanDraft.model_validate({
+        "weekly_hours": draft.weekly_hours,
+        "rationale": draft.rationale + "\nCourse stages were ordered by the verified catalogue prerequisites.",
+        "stages": repaired,
+    })
 
 
 def fits_student(start, end, prefs, tz):

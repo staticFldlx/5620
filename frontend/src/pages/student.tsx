@@ -1140,9 +1140,24 @@ export function StudentPlan() {
               </div>
             </>
           ) : (
-            <Empty>
-              Your plan will appear after assessment and teacher approval.
-            </Empty>
+            <>
+              <Empty>
+                Your plan will appear after assessment and teacher approval.
+              </Empty>
+              {latestConfirmed(student) && !choice && (
+                <AIButton
+                  pendingLabel="Preparing plan…"
+                  className="action primary"
+                  disabled={busy}
+                  onClick={() =>
+                    runAI("plan", () => api.request("request_plan"),
+                      "Plan request updated. Check the next step or teacher review.")
+                  }
+                >
+                  Prepare learning plan <ArrowRight size={15} />
+                </AIButton>
+              )}
+            </>
           )}
         </Panel>
         <div className="stack">
@@ -1157,6 +1172,8 @@ export function StudentPlan() {
                     : "Your approved plan is active."
                   : choice
                     ? "Choose a lesson time below to finish your plan."
+                  : latestConfirmed(student)
+                    ? "Your assessment is confirmed. Prepare a plan for teacher review."
                     : "Complete your goal and assessment. Your teacher will review the first plan."}
             </p>
             {plan?.progress_message && (
@@ -1359,7 +1376,7 @@ export function StudentPlan() {
                 View learning record
               </Link>
             </Panel>
-          ) : choice && !student?.pending_plan ? null : (
+          ) : choice && !student?.pending_plan ? null : latestConfirmed(student) ? null : (
             <Panel title="Next step">
               <p>
                 {student?.pending_plan

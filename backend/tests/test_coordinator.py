@@ -91,17 +91,33 @@ def test_follow_ups_stop_after_two_questions():
     api, _ = new_student()
     first = collect(api, "help")
     second = answer(api, first, "dunno")
-    final = answer(api, second, "not sure")
-    assert final["status"] == "completed" and final["result"]["summary"]  # no third question
-    profile = confirm(api, final["result"]["summary"]).json()["result"]["profile"]
-    assert profile["availability"] == []  # nothing was stated
+    response = api.post("/requests", {"type": "collect_goal", "context_id": second["id"], "input": {"answer": "not sure"}})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "availability_required"  # never silently skip times
 
 
 def test_llm_outage_keeps_the_students_own_words(monkeypatch):
     monkeypatch.setattr(registry, "build_runtime", lambda cls, task: make_runtime([]))  # every LLM call fails
     api, _ = new_student()
     envelope = collect(api, "I need English")
+    assert envelope["result"]["question"] == fake.TIMES_QUESTION
+    envelope = answer(api, envelope, "Tuesday 18:00-20:00")
     assert envelope["status"] == "completed" and envelope["result"]["summary"] == "I need English"
+
+
+def test_model_cannot_skip_missing_availability(monkeypatch):
+    from orchestration.coordinator import prompts
+
+    reading = prompts.GoalReading(enough=True, summary="Academic English for school", availability=["Tue 18:00-20:00"])
+    monkeypatch.setattr(registry, "build_runtime", lambda cls, task: make_runtime([reading.model_dump()]))
+    api, _ = new_student()
+    first = collect(api, "I need Academic English for my school exams next year")
+    assert first["result"]["question"] == fake.TIMES_QUESTION
+    final = answer(api, first, "Tuesday 18:00-20:00")
+    assert final["status"] == "completed"
+    assert confirm(api, final["result"]["summary"]).json()["result"]["profile"]["availability"] == [
+        {"day": "Tue", "start": "18:00", "end": "20:00"}
+    ]
 
 
 # --- confirm_goal (UC01 steps 4-6) ---------------------------------------------------------------

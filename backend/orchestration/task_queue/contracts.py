@@ -414,6 +414,7 @@ class DecisionFollowUpResult(Record):
 RESULT_CONTRACTS: dict[str, type[Record]] = {
     "collect_goal": CollectGoalResult,
     "confirm_goal": ConfirmGoalResult,
+    "request_plan": PlanReviewResult,
     "explain": InteractionResult,
     "resources": InteractionResult,
     "practice": PracticeResult,
@@ -511,6 +512,7 @@ class ReplyInput(Record):
 INPUT_CONTRACTS: dict[str, type[Record]] = {
     "collect_goal": CollectGoalInput,
     "confirm_goal": ConfirmGoalInput,
+    "request_plan": AnyInput,
     "explain": QuestionInput,
     "resources": QuestionInput,
     "practice": AnyInput,
