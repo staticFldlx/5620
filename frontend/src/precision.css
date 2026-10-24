@@ -1245,3 +1245,327 @@ select {
     transition: none;
   }
 }
+
+/* Independent overview columns prevent expanded stages from creating empty rows. */
+.overview-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.overview-main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.overview-board .overview-feedback {
+  min-height: 0;
+}
+.overview-board .overview-path .key-values {
+  padding: 12px 0;
+  margin-bottom: 4px;
+}
+.overview-board .path-stage-list {
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.overview-board .path-stage summary {
+  padding: 11px;
+}
+@media (max-width: 1000px) {
+  .overview-board {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .overview-main-column {
+    display: contents;
+  }
+  .overview-board .hero-panel {
+    order: 0;
+  }
+  .overview-next-steps {
+    order: 1;
+  }
+  .overview-board .overview-path {
+    order: 2;
+  }
+  .overview-feedback {
+    order: 3;
+  }
+}
+
+/* Chat rhythm and request-only activity feedback. */
+.assistant-conversation .chat-list {
+  gap: 28px;
+  padding: 8px 6px 18px;
+  scroll-padding-block: 18px;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
+}
+.assistant-conversation .chat-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: none;
+  min-width: 0;
+  animation: chat-arrive 0.24s ease-out;
+}
+.assistant-conversation .chat-question,
+.assistant-conversation .chat-answer {
+  margin-block: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-conversation .chat-question {
+  white-space: pre-wrap;
+}
+.assistant-conversation .chat-answer p {
+  white-space: pre-wrap;
+}
+.assistant-conversation .assistant-thinking {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 88px;
+  background: linear-gradient(110deg, var(--surface-alt), var(--accent-soft));
+}
+.thinking-orbit {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--accent-strong);
+}
+.thinking-orbit::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent-strong);
+  border-radius: 50%;
+  animation: thinking-orbit 2.4s linear infinite;
+}
+.thinking-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.thinking-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+.thinking-copy > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.thinking-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+.thinking-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+.thinking-dots i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.thinking-dots i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+@keyframes thinking-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes thinking-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+@keyframes chat-arrive {
+  from {
+    opacity: 0.5;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 760px) {
+  .assistant-conversation .chat-question {
+    max-width: 90%;
+  }
+  .assistant-conversation .chat-answer {
+    max-width: 96%;
+  }
+  .assistant-conversation .assistant-thinking {
+    gap: 10px;
+    padding: 14px;
+  }
+  .thinking-dots {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-conversation .chat-pair,
+  .thinking-orbit::before,
+  .thinking-dots i {
+    animation: none;
+  }
+}
+
+/* Shared AI request feedback, visible even when the action is below the fold. */
+.ai-activity {
+  position: fixed;
+  z-index: 40;
+  right: 22px;
+  bottom: max(22px, env(safe-area-inset-bottom));
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 20px 26px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--ink);
+  background: linear-gradient(125deg, var(--surface), var(--accent-soft));
+  box-shadow: 0 12px 40px var(--shadow);
+  overflow: hidden;
+  pointer-events: none;
+  animation: chat-arrive 0.24s ease-out;
+}
+.ai-activity-orbit {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+.ai-activity-orbit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--accent-strong);
+  border-radius: 50%;
+  opacity: 0.2;
+  animation: ai-orbit-breathe 2.4s ease-in-out infinite;
+}
+.ai-activity-copy { display: grid; gap: 6px; min-width: 0; }
+.ai-activity-copy .ai-activity-label {
+  color: var(--accent-strong);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.ai-activity-copy strong { font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.ai-activity-copy > span { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ai-activity-sweep { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: var(--line); }
+.ai-activity-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, var(--accent-strong), transparent);
+  animation: ai-activity-sweep 2.4s ease-in-out infinite;
+}
+@keyframes ai-activity-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes ai-orbit-breathe { 50% { transform: scale(1.12); opacity: 0.45; } }
+@media (max-width: 760px) {
+  .ai-activity { right: 16px; bottom: max(16px, env(safe-area-inset-bottom)); gap: 12px; padding: 18px 16px 22px; }
+  .ai-activity-orbit { width: 46px; height: 46px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-activity, .ai-activity-orbit::after, .ai-activity-sweep::after { animation: none; }
+}
+
+/* The active AI button owns its feedback; neighbouring controls never animate. */
+.ai-action { position: relative; overflow: hidden; }
+.ai-button-content { display: grid; min-width: 0; }
+.ai-button-label, .ai-button-progress {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.ai-button-progress { visibility: hidden; }
+.ai-action[aria-busy="true"] .ai-button-label { visibility: hidden; }
+.ai-action[aria-busy="true"] .ai-button-progress { visibility: visible; }
+.ai-action[aria-busy="true"] { opacity: 1; cursor: wait; }
+.ai-action[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 25%, #ffffff26 50%, transparent 75%);
+  animation: ai-activity-sweep 2.4s ease-in-out infinite;
+}
+.ai-button-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: thinking-orbit 1.2s linear infinite;
+}
+/* Reserve the final paragraph height to prevent jumps during the short reveal. */
+.generated-text { display: grid; min-width: 0; }
+.generated-text-measure, .generated-text-visible {
+  grid-area: 1 / 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.generated-text-measure { visibility: hidden; }
+.generated-text-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.9em;
+  margin-left: 2px;
+  vertical-align: -0.05em;
+  background: var(--accent-strong);
+  animation: thinking-pulse 0.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-action[aria-busy="true"]::after, .ai-button-spinner, .generated-text-caret { animation: none; }
+  .generated-text-measure { visibility: visible; }
+  .generated-text-visible { visibility: hidden; }
+}
+
+/* Unsaved availability rows can be discarded without changing saved times. */
+.availability-draft-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+.availability-draft-actions small { color: var(--muted); }
+.availability-draft-actions .availability-remove {
+  min-height: 36px;
+  padding: 7px 12px;
+  font-size: 12px;
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Link } from "react-router"
-import { ArrowUpRight, Pause, Play } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import { mountHeroScene } from "@/components/hero-scene"
 import "./home.css"
 
@@ -14,9 +14,6 @@ function subscribeMotion(notify: () => void) {
 
 export function HomePage() {
   const [scene, setScene] = useState(0)
-  const [playing, setPlaying] = useState(
-    () => localStorage.getItem("lingopath-motion") !== "off"
-  )
   const [inView, setInView] = useState(true)
   const [visible, setVisible] = useState(() => !document.hidden)
   const reduced = useSyncExternalStore(
@@ -26,8 +23,7 @@ export function HomePage() {
   )
   const stage = useRef<HTMLElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
-  const moving = playing && !reduced
-  const running = moving && inView && visible
+  const running = !reduced && inView && visible
 
   useEffect(() => {
     const onVisibility = () => setVisible(!document.hidden)
@@ -70,21 +66,6 @@ export function HomePage() {
             <br />
             Human judgement.
           </span>
-          <button
-            className="landing-motion"
-            type="button"
-            disabled={reduced}
-            aria-label={
-              reduced
-                ? "Animation disabled by reduced motion preference"
-                : moving
-                  ? "Pause visual motion"
-                  : "Play visual motion"
-            }
-            onClick={() => setPlaying((current) => !current)}
-          >
-            {moving ? <Pause size={16} /> : <Play size={16} />}
-          </button>
         </div>
       </header>
       <div className="landing-content">

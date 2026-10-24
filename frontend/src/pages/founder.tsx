@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
+import { AIButton } from "@/components/ai-button"
 import type { Case, Proposal } from "@/api/types"
 import {
   AIVisual,
@@ -264,7 +265,8 @@ export function FounderCases() {
   async function decide(action: string) {
     const result = await run(
       () => api.decideCase(selected, action, note),
-      "Case decision recorded."
+      "Case decision recorded.",
+      action === "widen_match" ? "plan" : undefined
     )
     if (result) {
       setDetail(await api.getCase(selected))
@@ -360,7 +362,7 @@ export function FounderCases() {
 }
 export function FounderIncidents() {
   const ops = useOperations()
-  const { run, busy } = useApp()
+  const { runAI, busy } = useApp()
   const incidents = ops?.cases.filter((x) => x.kind === "technical") || []
   const [selected, setSelected] = useState(
     incidents.find((x) => x.status !== "resolved")?.id || incidents[0]?.id || ""
@@ -442,11 +444,13 @@ export function FounderIncidents() {
                 placeholder="Explain the correction needed"
               />
             </label>
-            <Button
+            <AIButton
+              pendingLabel="Processing…"
               className="action secondary"
               disabled={busy || !note.trim()}
               onClick={() =>
-                run(
+                runAI(
+                  "correction",
                   () =>
                     api.decideAgent("technical", "request_correction", note),
                   "Correction requested and audited."
@@ -454,7 +458,7 @@ export function FounderIncidents() {
               }
             >
               Request correction
-            </Button>
+            </AIButton>
           </Panel>
         </div>
       </div>

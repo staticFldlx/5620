@@ -143,25 +143,7 @@
   align-items: center;
   gap: 20px;
 }
-.landing-motion {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border: 1px solid #ffffff28;
-  border-radius: 50%;
-  background: #ffffff08;
-  color: #dceaff;
-  cursor: pointer;
-}
-.landing-motion:hover:not(:disabled) {
-  background: #ffffff18;
-}
-.landing-motion:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
+
 @media (max-width: 760px) {
   .landing {
     min-height: max(720px, 100svh);

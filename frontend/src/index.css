@@ -1506,12 +1506,6 @@ select {
     opacity: 0.6;
   }
 }
-[data-motion="off"] *,
-[data-motion="off"] *::before,
-[data-motion="off"] *::after {
-  animation: none !important;
-  transition: none !important;
-}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

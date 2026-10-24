@@ -26,6 +26,7 @@ import {
 } from "lucide-react"
 import { useTheme } from "@/components/theme-provider"
 import { useApp } from "@/app-context"
+import { AIActivity } from "@/components/ai-activity"
 import type { Role } from "@/api/types"
 
 const nav = {
@@ -90,10 +91,17 @@ export function Guard({ role }: { role: Role }) {
   return <Shell role={role} />
 }
 function Shell({ role }: { role: Role }) {
-  const { user, workspace, logout, notice, noticeHref, clearNotice } = useApp()
+  const {
+    user,
+    workspace,
+    logout,
+    notice,
+    noticeHref,
+    clearNotice,
+    aiActivity,
+  } = useApp()
   const { theme, setTheme } = useTheme()
   const location = useLocation()
-  const [motionOn, setMotionOn] = ReactUseMotion()
   const student = workspace?.students?.[user!.id]
   const isMobile = useSyncExternalStore(
     subscribeToMobile,
@@ -149,29 +157,22 @@ function Shell({ role }: { role: Role }) {
           ))}
         </nav>
         <div className="sidebar-spacer" />
-        <div className="assistant-hint">
-          <Sparkles size={16} />
-          <strong>
-            {role === "Student"
-              ? "Learning assistant"
-              : role === "Teacher"
-                ? "Teaching assistant"
-                : "Technical manager"}
-          </strong>
-          <span>
-            {role === "Student"
-              ? "Answers, sources and practice at your level."
-              : role === "Teacher"
-                ? "Evidence and materials, ready for your review."
+        {role !== "Teacher" && (
+          <div className="assistant-hint">
+            <Sparkles size={16} />
+            <strong>
+              {role === "Student" ? "Learning assistant" : "Technical manager"}
+            </strong>
+            <span>
+              {role === "Student"
+                ? "Answers, sources and practice at your level."
                 : "Signals and evidence, with human approval."}
-          </span>
-          <Link
-            onClick={closeMenu}
-            to={role === "Student" ? "/s6" : role === "Teacher" ? "/t5" : "/f3"}
-          >
-            Open workspace <ArrowUpRight size={13} />
-          </Link>
-        </div>
+            </span>
+            <Link onClick={closeMenu} to={role === "Student" ? "/s6" : "/f3"}>
+              Open workspace <ArrowUpRight size={13} />
+            </Link>
+          </div>
+        )}
       </div>
       <button
         className="sign-out"
@@ -185,7 +186,7 @@ function Shell({ role }: { role: Role }) {
     </>
   )
   return (
-    <div className="app-shell" data-motion={motionOn ? "on" : "off"}>
+    <div className="app-shell">
       {!isMobile && <aside className="sidebar">{sidebarContent()}</aside>}
       <div className="main-column">
         <header className="topbar">
@@ -236,14 +237,10 @@ function Shell({ role }: { role: Role }) {
         </main>
         <footer className="footer">
           Learning, with support. AI assistance · Human judgement.
-          <div>
-            <button onClick={() => setMotionOn(!motionOn)}>
-              {motionOn ? "▷ Motion on" : "◼ Motion off"}
-            </button>
-          </div>
         </footer>
       </div>
-      {notice && (
+      {aiActivity && <AIActivity kind={aiActivity} />}
+      {notice && !aiActivity && (
         <motion.div
           role="status"
           initial={{ opacity: 0, y: 14 }}
@@ -304,19 +301,6 @@ function MobileNavigation({
     </Dialog.Root>
   )
 }
-function ReactUseMotion(): [boolean, (v: boolean) => void] {
-  const [value, setValue] = importReactUseState(
-    () => localStorage.getItem("lingopath-motion") !== "off"
-  )
-  return [
-    value,
-    (v) => {
-      localStorage.setItem("lingopath-motion", v ? "on" : "off")
-      setValue(v)
-    },
-  ]
-}
-import { useState as importReactUseState } from "react"
 export function Page({
   eyebrow,
   title,
@@ -462,9 +446,7 @@ export function RoleDirectory() {
       <div className="directory-hero">
         <span className="eyebrow">LINGOPATH · STAGE ONE</span>
         <h1>One connected learning journey.</h1>
-        <p>
-          Choose a role to sign in to its workspace.
-        </p>
+        <p>Choose a role to sign in to its workspace.</p>
         <AIVisual />
       </div>
       <div className="directory-grid">

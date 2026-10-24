@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test"
 
-test("homepage cycles every six seconds, can pause and opens real auth routes", async ({
+test("homepage cycles every six seconds without playback controls and opens real auth routes", async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" })
@@ -9,11 +9,8 @@ test("homepage cycles every six seconds, can pause and opens real auth routes", 
   await expect(page.locator(".landing")).toHaveAttribute("data-scene", "orbit")
   await page.clock.fastForward(6500)
   await expect(page.locator(".landing")).toHaveAttribute("data-scene", "nexus")
-  await page.getByRole("button", { name: "Pause visual motion" }).click()
-  await page.clock.fastForward(25000)
-  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "nexus")
+  await expect(page.locator(".landing-motion")).toHaveCount(0)
   await expect(page.locator(".landing-bottom")).toHaveCount(0)
-  await page.getByRole("button", { name: "Play visual motion" }).click()
   await page.clock.fastForward(6500)
   await expect(page.locator(".landing")).toHaveAttribute("data-scene", "portal")
   await page.getByRole("link", { name: "Get started" }).click()
@@ -27,11 +24,7 @@ test("homepage cycles every six seconds, can pause and opens real auth routes", 
 test("reduced motion keeps the homepage still", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
-  await expect(
-    page.getByRole("button", {
-      name: "Animation disabled by reduced motion preference",
-    })
-  ).toBeDisabled()
+  await expect(page.locator(".landing-motion")).toHaveCount(0)
   await expect(page.locator(".landing")).toHaveAttribute("data-scene", "orbit")
 })
 

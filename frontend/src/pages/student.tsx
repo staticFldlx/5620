@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
 import {
   ArrowRight,
@@ -17,6 +17,8 @@ import {
 import { AssessmentAnswers } from "@/components/assessment-answers"
 import { api } from "@/api/client"
 import { useApp } from "@/app-context"
+import { AIButton } from "@/components/ai-button"
+import { GeneratedText } from "@/components/generated-text"
 import type {
   AssessmentSession,
   Interaction,
@@ -277,112 +279,203 @@ export function StudentOverview() {
           <Pill tone="warn">Pending review</Pill>
         </div>
       )}
-      <div className="board two-thirds">
-        <Panel className="hero-panel">
-          <div className="hero-content">
-            <span className="eyebrow">
-              {next || plan ? "YOUR NEXT LESSON" : "YOUR NEXT STEP"}
-            </span>
-            <Pill tone="good">{next?.status || "No lesson"}</Pill>
-            <h2>
-              {next?.title ||
-                (plan ? "Your learning journey starts here" : nextStep.title)}
-            </h2>
-            <p>
-              {next
-                ? `${next.teacher.name} · ${date(next.starts_at)}`
-                : plan
-                  ? "Your first lesson will appear when a time is confirmed."
-                  : nextStep.description}
-            </p>
-            <div className="hero-actions">
-              <Link
-                className="action primary"
-                to={next ? "/s5" : nextStep.href}
-              >
-                {next ? "View lesson" : nextStep.label} <ArrowRight size={15} />
-              </Link>
-              <Link className="action secondary" to="/s6">
-                Ask assistant
-              </Link>
-              {next && (
-                <button
-                  className="action secondary lesson-plus"
-                  type="button"
-                  aria-label={
-                    quickOpen ? "Close lesson actions" : "Expand lesson actions"
-                  }
-                  aria-expanded={quickOpen}
-                  aria-controls="overview-lesson-actions"
-                  onClick={() => setQuickOpen((open) => !open)}
+      <div className="overview-board">
+        <div className="overview-main-column">
+          <Panel className="hero-panel">
+            <div className="hero-content">
+              <span className="eyebrow">
+                {next || plan ? "YOUR NEXT LESSON" : "YOUR NEXT STEP"}
+              </span>
+              <Pill tone="good">{next?.status || "No lesson"}</Pill>
+              <h2>
+                {next?.title ||
+                  (plan ? "Your learning journey starts here" : nextStep.title)}
+              </h2>
+              <p>
+                {next
+                  ? `${next.teacher.name} · ${date(next.starts_at)}`
+                  : plan
+                    ? "Your first lesson will appear when a time is confirmed."
+                    : nextStep.description}
+              </p>
+              <div className="hero-actions">
+                <Link
+                  className="action primary"
+                  to={next ? "/s5" : nextStep.href}
                 >
-                  <Plus size={19} />
-                </button>
-              )}
-            </div>
-            {next && quickOpen && (
-              <section
-                id="overview-lesson-actions"
-                className="overview-lesson-actions"
-                aria-label="Lesson quick actions"
-              >
-                <div className="quick-action-row">
+                  {next ? "View lesson" : nextStep.label}{" "}
+                  <ArrowRight size={15} />
+                </Link>
+                <Link className="action secondary" to="/s6">
+                  Ask assistant
+                </Link>
+                {next && (
                   <button
-                    className="choice"
-                    aria-pressed={quickView === "details"}
-                    onClick={() => setQuickView("details")}
+                    className="action secondary lesson-plus"
+                    type="button"
+                    aria-label={
+                      quickOpen
+                        ? "Close lesson actions"
+                        : "Expand lesson actions"
+                    }
+                    aria-expanded={quickOpen}
+                    aria-controls="overview-lesson-actions"
+                    onClick={() => setQuickOpen((open) => !open)}
                   >
-                    Details
+                    <Plus size={19} />
                   </button>
-                  <button
-                    className="choice"
-                    aria-pressed={quickView === "materials"}
-                    onClick={() => setQuickView("materials")}
-                  >
-                    Materials
-                  </button>
-                  {next.status === "confirmed" && (
-                    <Link className="action secondary" to="/s5">
-                      Change time <ArrowRight size={14} />
-                    </Link>
-                  )}
-                </div>
-                {quickView === "details" ? (
-                  <div className="quick-action-content">
-                    <strong>{next.title}</strong>
-                    <p>
-                      {date(next.starts_at)} – {date(next.ends_at)} (Sydney
-                      time)
-                    </p>
-                    <p>Teacher: {next.teacher.name}</p>
-                    {next.feedback && <p>{next.feedback}</p>}
-                  </div>
-                ) : (
-                  <div className="quick-action-content">
-                    <strong>Approved materials</strong>
-                    {materials.some((material) =>
-                      next.material_ids.includes(material.id)
-                    ) ? (
-                      materials
-                        .filter((material) =>
-                          next.material_ids.includes(material.id)
-                        )
-                        .map((material) => (
-                          <MaterialButton
-                            key={material.id}
-                            material={material}
-                          />
-                        ))
-                    ) : (
-                      <p>No approved materials for this lesson yet.</p>
+                )}
+              </div>
+              {next && quickOpen && (
+                <section
+                  id="overview-lesson-actions"
+                  className="overview-lesson-actions"
+                  aria-label="Lesson quick actions"
+                >
+                  <div className="quick-action-row">
+                    <button
+                      className="choice"
+                      aria-pressed={quickView === "details"}
+                      onClick={() => setQuickView("details")}
+                    >
+                      Details
+                    </button>
+                    <button
+                      className="choice"
+                      aria-pressed={quickView === "materials"}
+                      onClick={() => setQuickView("materials")}
+                    >
+                      Materials
+                    </button>
+                    {next.status === "confirmed" && (
+                      <Link className="action secondary" to="/s5">
+                        Change time <ArrowRight size={14} />
+                      </Link>
                     )}
                   </div>
-                )}
-              </section>
+                  {quickView === "details" ? (
+                    <div className="quick-action-content">
+                      <strong>{next.title}</strong>
+                      <p>
+                        {date(next.starts_at)} – {date(next.ends_at)} (Sydney
+                        time)
+                      </p>
+                      <p>Teacher: {next.teacher.name}</p>
+                      {next.feedback && <p>{next.feedback}</p>}
+                    </div>
+                  ) : (
+                    <div className="quick-action-content">
+                      <strong>Approved materials</strong>
+                      {materials.some((material) =>
+                        next.material_ids.includes(material.id)
+                      ) ? (
+                        materials
+                          .filter((material) =>
+                            next.material_ids.includes(material.id)
+                          )
+                          .map((material) => (
+                            <MaterialButton
+                              key={material.id}
+                              material={material}
+                            />
+                          ))
+                      ) : (
+                        <p>No approved materials for this lesson yet.</p>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+            <AIVisual />
+          </Panel>
+          <Panel title="Your next steps" className="overview-next-steps">
+            {!plan ? (
+              <Row
+                title={nextStep.title}
+                detail={nextStep.description}
+                right={
+                  <Link className="text-link" to={nextStep.href}>
+                    {nextStep.label} →
+                  </Link>
+                }
+              />
+            ) : materials.length === 0 ? (
+              <>
+                <Row
+                  title="Follow your active plan"
+                  detail={
+                    plan.stages[plan.stage_index]?.title || "Current stage"
+                  }
+                  right={
+                    <Link className="text-link" to="/s4">
+                      View →
+                    </Link>
+                  }
+                />
+                <Row
+                  title="Ask the learning assistant"
+                  detail="Personalised support for your current stage"
+                  right={
+                    <Link className="text-link" to="/s6">
+                      Ask →
+                    </Link>
+                  }
+                />
+                <Row
+                  title="Check lesson schedule"
+                  detail="Your teacher will confirm a time"
+                  right={
+                    <Link className="text-link" to="/s5">
+                      View →
+                    </Link>
+                  }
+                />
+              </>
+            ) : (
+              <>
+                <Row
+                  title="Read the argument guide"
+                  detail="Approved lesson material"
+                  right={
+                    <Link className="text-link" to="/s5">
+                      Read →
+                    </Link>
+                  }
+                />
+                <Row
+                  title="Stage assessment"
+                  detail="Milestone review when ready"
+                  right={
+                    <Link className="text-link" to="/s3">
+                      Start →
+                    </Link>
+                  }
+                />
+                <Row
+                  title="Evidence-linking practice"
+                  detail="Light practice · instant feedback"
+                  right={
+                    <Link className="text-link" to="/s6">
+                      Practice →
+                    </Link>
+                  }
+                />
+              </>
             )}
-          </div>
-          <AIVisual />
-        </Panel>
+          </Panel>
+          <Panel title="Recent feedback" className="overview-feedback">
+            <p>
+              {lessons.filter((x) => x.feedback).at(-1)?.feedback ||
+                confirmed?.review_note ||
+                confirmed?.feedback ||
+                "No feedback yet."}
+            </p>
+            <Link className="text-link" to="/s8">
+              View learning record <ArrowRight size={14} />
+            </Link>
+          </Panel>
+        </div>
         <Panel title="Your learning path" className="overview-path">
           <p className="muted">
             {student?.profile.goal_summary || "Set your goal"}
@@ -394,7 +487,6 @@ export function StudentOverview() {
                   <details
                     key={`${plan.id}:${i}`}
                     className={`path-stage ${stage.status}`}
-                    open={stage.status === "current"}
                   >
                     <summary>
                       <span className="path-stage-number" aria-hidden="true">
@@ -462,97 +554,13 @@ export function StudentOverview() {
             View learning plan <ArrowRight size={15} />
           </Link>
         </Panel>
-        <Panel title="Recent feedback">
-          <p>
-            {lessons.filter((x) => x.feedback).at(-1)?.feedback ||
-              confirmed?.review_note ||
-              confirmed?.feedback ||
-              "No feedback yet."}
-          </p>
-          <Link className="text-link" to="/s8">
-            View learning record <ArrowRight size={14} />
-          </Link>
-        </Panel>
-        <Panel title="Your next steps">
-          {!plan ? (
-            <Row
-              title={nextStep.title}
-              detail={nextStep.description}
-              right={
-                <Link className="text-link" to={nextStep.href}>
-                  {nextStep.label} →
-                </Link>
-              }
-            />
-          ) : materials.length === 0 ? (
-            <>
-              <Row
-                title="Follow your active plan"
-                detail={plan.stages[plan.stage_index]?.title || "Current stage"}
-                right={
-                  <Link className="text-link" to="/s4">
-                    View →
-                  </Link>
-                }
-              />
-              <Row
-                title="Ask the learning assistant"
-                detail="Personalised support for your current stage"
-                right={
-                  <Link className="text-link" to="/s6">
-                    Ask →
-                  </Link>
-                }
-              />
-              <Row
-                title="Check lesson schedule"
-                detail="Your teacher will confirm a time"
-                right={
-                  <Link className="text-link" to="/s5">
-                    View →
-                  </Link>
-                }
-              />
-            </>
-          ) : (
-            <>
-              <Row
-                title="Read the argument guide"
-                detail="Approved lesson material"
-                right={
-                  <Link className="text-link" to="/s5">
-                    Read →
-                  </Link>
-                }
-              />
-              <Row
-                title="Stage assessment"
-                detail="Milestone review when ready"
-                right={
-                  <Link className="text-link" to="/s3">
-                    Start →
-                  </Link>
-                }
-              />
-              <Row
-                title="Evidence-linking practice"
-                detail="Light practice · instant feedback"
-                right={
-                  <Link className="text-link" to="/s6">
-                    Practice →
-                  </Link>
-                }
-              />
-            </>
-          )}
-        </Panel>
       </div>
     </Page>
   )
 }
 export function StudentGoal() {
   const { student } = useStudent()
-  const { run, busy, workspace } = useApp()
+  const { run, runAI, busy, workspace } = useApp()
   const nextStep = studentNextStep(
     student,
     workspace?.assessment_sessions || []
@@ -584,14 +592,14 @@ export function StudentGoal() {
   }
   async function organise() {
     if (!goal.trim()) return
-    const result = await run(() =>
+    const result = await runAI("goal", () =>
       api.request("collect_goal", { goal_text: goal, focus_skills: skills })
     )
     if (result) show(result)
   }
   async function reply() {
     if (!question || !answer.trim()) return
-    const result = await run(() =>
+    const result = await runAI("goal", () =>
       api.request("collect_goal", { answer }, undefined, question.id)
     )
     if (result) {
@@ -708,13 +716,14 @@ export function StudentGoal() {
             />
           </label>
           <div className="button-row">
-            <Button
+            <AIButton
+              pendingLabel="Organising…"
               className="action secondary"
               onClick={organise}
               disabled={busy || !goal.trim()}
             >
               Organise my goal <Sparkles size={15} />
-            </Button>
+            </AIButton>
             <Button
               className="action primary"
               disabled={busy || !summary}
@@ -739,19 +748,22 @@ export function StudentGoal() {
                 placeholder="Your answer"
               />
               <div className="button-row">
-                <Button
+                <AIButton
+                  pendingLabel="Reviewing…"
                   className="action secondary"
                   onClick={reply}
                   disabled={busy || !answer.trim()}
                 >
                   Answer <ArrowRight size={15} />
-                </Button>
+                </AIButton>
               </div>
             </>
           ) : summary ? (
             <>
               <Pill tone="info">Ready for your confirmation</Pill>
-              <h3>{summary}</h3>
+              <h3>
+                <GeneratedText text={summary} />
+              </h3>
               <p>
                 Skills: {skills.join(", ") || "To be discussed"} · {hours} hours
                 a week
@@ -776,7 +788,7 @@ export function StudentGoal() {
 }
 export function StudentAssessments() {
   const { student, user } = useStudent()
-  const { run, busy, workspace, refresh } = useApp()
+  const { run, runAI, busy, workspace, refresh } = useApp()
   const [session, setSession] = useState<AssessmentSession | null>(null)
   const [answer, setAnswer] = useState("")
   const [filter, setFilter] = useState("all")
@@ -822,7 +834,7 @@ export function StudentAssessments() {
   )
   async function start() {
     if (!user) return
-    const result = await run(() =>
+    const result = await runAI("assessment", () =>
       api.startAssessment(
         user.id,
         student?.assessments.length ? "milestone" : "initial"
@@ -834,7 +846,7 @@ export function StudentAssessments() {
   }
   async function submit() {
     if (!session || !answer.trim()) return
-    const result = await run(() =>
+    const result = await runAI("answer", () =>
       api.answerAssessment(
         session.id,
         session.current_item_id || `item-${session.answered + 1}`,
@@ -865,7 +877,8 @@ export function StudentAssessments() {
                   : "Confirm your learning goal before starting an assessment."}
               </p>
               <div className="button-row">
-                <Button
+                <AIButton
+                  pendingLabel="Preparing…"
                   className="action primary"
                   onClick={start}
                   disabled={
@@ -873,7 +886,7 @@ export function StudentAssessments() {
                   }
                 >
                   Start assessment <ArrowRight size={15} />
-                </Button>
+                </AIButton>
                 {ongoing.map((saved) => (
                   <Button
                     key={saved.id}
@@ -919,13 +932,14 @@ export function StudentAssessments() {
                 placeholder="Write your answer"
               />
               <div className="button-row">
-                <Button
+                <AIButton
+                  pendingLabel="Analysing…"
                   className="action primary"
                   onClick={submit}
                   disabled={busy || !answer.trim()}
                 >
                   Submit answer <ArrowRight size={15} />
-                </Button>
+                </AIButton>
                 <Button
                   className="action secondary"
                   onClick={() => setSession(null)}
@@ -1019,7 +1033,7 @@ export function StudentAssessments() {
 }
 export function StudentPlan() {
   const { student } = useStudent()
-  const { run, busy, workspace } = useApp()
+  const { run, runAI, busy, workspace } = useApp()
   const [reason, setReason] = useState("")
   const plan = student?.plan
   const displayPlan = plan || student?.pending_plan
@@ -1194,11 +1208,13 @@ export function StudentPlan() {
                 ))}
               </fieldset>
               <div className="button-row">
-                <Button
+                <AIButton
+                  pendingLabel="Preparing plan…"
                   className="action primary"
                   disabled={busy || !slotId}
                   onClick={async () => {
-                    const response = await run(
+                    const response = await runAI(
+                      "plan",
                       () =>
                         api.request(
                           choice.request_type,
@@ -1212,7 +1228,7 @@ export function StudentPlan() {
                   }}
                 >
                   Confirm time
-                </Button>
+                </AIButton>
               </div>
             </Panel>
           )}
@@ -1317,11 +1333,13 @@ export function StudentPlan() {
                 rows={4}
                 placeholder="What changed, and why?"
               />
-              <Button
+              <AIButton
+                pendingLabel="Preparing revision…"
                 className="action primary"
                 disabled={busy || !reason.trim() || !!student?.pending_plan}
                 onClick={async () => {
-                  const result = await run(
+                  const result = await runAI(
+                    "plan",
                     () => api.request("revise_plan", { reason }),
                     "Revision sent for teacher review."
                   )
@@ -1329,7 +1347,7 @@ export function StudentPlan() {
                 }}
               >
                 Request revision <ArrowRight size={15} />
-              </Button>
+              </AIButton>
             </Panel>
           ) : plan?.status === "completed" ? (
             <Panel title="Plan completed">
@@ -1589,18 +1607,63 @@ export function StudentLessons() {
 }
 export function StudentAssistant() {
   const { interactions, materials } = useStudent()
-  const { run, busy } = useApp()
+  const { run, runAI, busy } = useApp()
   const [question, setQuestion] = useState("")
   const [practice, setPractice] = useState("")
   const [practiceAnswer, setPracticeAnswer] = useState("")
   const [feedback, setFeedback] = useState("")
-  async function send(resources = false) {
-    const result = await run(() =>
-      api.request(resources ? "resources" : "explain", {
-        question: question || "Find learning resources for my current stage",
-      })
+  const [pending, setPending] = useState<{
+    question: string
+    resources: boolean
+    previousIds: Set<string>
+  } | null>(null)
+  const sending = useRef(false)
+  const chatList = useRef<HTMLDivElement>(null)
+  const hasScrolled = useRef(false)
+  const latest = interactions.at(-1)
+  const pendingHasReply =
+    pending &&
+    interactions.some(
+      (item) =>
+        !pending.previousIds.has(item.id) && item.question === pending.question
     )
-    if (result) setQuestion("")
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const list = chatList.current
+      if (!list) return
+      const reduceMotion =
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      list.scrollTo({
+        top: list.scrollHeight,
+        behavior: hasScrolled.current && !reduceMotion ? "smooth" : "instant",
+      })
+      hasScrolled.current = true
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [pending, latest?.id, latest?.answer, latest?.status])
+
+  async function send(resources = false) {
+    if (sending.current || busy) return
+    const submittedQuestion =
+      question || "Find learning resources for my current stage"
+    sending.current = true
+    setPending({
+      question: submittedQuestion,
+      resources,
+      previousIds: new Set(interactions.map((item) => item.id)),
+    })
+    try {
+      const result = await run(() =>
+        api.request(resources ? "resources" : "explain", {
+          question: submittedQuestion,
+        })
+      )
+      if (result) setQuestion("")
+    } finally {
+      sending.current = false
+      setPending(null)
+    }
   }
   return (
     <Page
@@ -1609,8 +1672,17 @@ export function StudentAssistant() {
       subtitle="Ask, explore sources, and practise at your level."
     >
       <div className="board two-thirds">
-        <Panel title="A little help, right when you need it">
-          <div className="chat-list">
+        <Panel
+          title="A little help, right when you need it"
+          className="assistant-conversation"
+        >
+          <div
+            className="chat-list"
+            ref={chatList}
+            role="region"
+            aria-label="Conversation"
+            tabIndex={0}
+          >
             {interactions.map((item: Interaction) => (
               <div className="chat-pair" key={item.id}>
                 <div className="chat-question">{item.question}</div>
@@ -1629,32 +1701,62 @@ export function StudentAssistant() {
                 </div>
               </div>
             ))}
+            {pending && !pendingHasReply && (
+              <div className="chat-pair chat-pending">
+                <div className="chat-question">{pending.question}</div>
+                <div
+                  className="chat-answer assistant-thinking"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className="thinking-orbit" aria-hidden="true">
+                    <Sparkles size={17} />
+                  </span>
+                  <div className="thinking-copy">
+                    <strong>
+                      {pending.resources
+                        ? "Finding relevant resources"
+                        : "Preparing your response"}
+                    </strong>
+                    <span>Teaching Assistant is working on your request.</span>
+                  </div>
+                  <span className="thinking-dots" aria-hidden="true">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           <div className="chat-compose">
             <label className="field-label">
               Ask a question
               <Textarea
                 rows={3}
+                disabled={!!pending}
                 value={question}
                 onChange={(e) => setQuestion(e.target.value)}
                 placeholder="Can you explain this in another way?"
               />
             </label>
             <div className="button-row">
-              <Button
+              <AIButton
+                pendingLabel="Finding resources…"
                 className="action secondary"
-                disabled={busy}
+                disabled={busy || !!pending}
                 onClick={() => send(true)}
               >
                 Find resources
-              </Button>
-              <Button
+              </AIButton>
+              <AIButton
+                pendingLabel="Thinking…"
                 className="action primary"
-                disabled={busy || !question.trim()}
+                disabled={busy || !!pending || !question.trim()}
                 onClick={() => send()}
               >
                 Send <ArrowRight size={15} />
-              </Button>
+              </AIButton>
             </div>
           </div>
         </Panel>
@@ -1676,19 +1778,24 @@ export function StudentAssistant() {
                 onChange={(e) => setPracticeAnswer(e.target.value)}
                 placeholder="Write a short response"
               />
-              <Button
+              <AIButton
+                pendingLabel="Reviewing…"
                 className="action primary"
                 disabled={busy || !practiceAnswer.trim()}
                 onClick={async () => {
-                  const result = await run(() =>
+                  const result = await runAI("feedback", () =>
                     api.request("practice_answer", { answer: practiceAnswer })
                   )
                   if (result) setFeedback(String(result.result.feedback))
                 }}
               >
                 Check answer
-              </Button>
-              {feedback && <Status>{feedback}</Status>}
+              </AIButton>
+              {feedback && (
+                <Status>
+                  <GeneratedText text={feedback} />
+                </Status>
+              )}
             </>
           ) : (
             <>
@@ -1696,16 +1803,19 @@ export function StudentAssistant() {
                 Short exercises give feedback and stay separate from formal
                 assessment.
               </p>
-              <Button
+              <AIButton
+                pendingLabel="Creating practice…"
                 className="action primary"
                 disabled={busy}
                 onClick={async () => {
-                  const result = await run(() => api.request("practice"))
+                  const result = await runAI("practice", () =>
+                    api.request("practice")
+                  )
                   if (result) setPractice(String(result.result.question))
                 }}
               >
                 Start a short practice <Sparkles size={15} />
-              </Button>
+              </AIButton>
             </>
           )}
         </Panel>
