@@ -578,6 +578,7 @@ export function StudentGoal() {
     null
   )
   const [answer, setAnswer] = useState("")
+  const replying = useRef(false)
   function show(envelope: RequestEnvelope) {
     if (
       envelope.status === "awaiting_confirmation" &&
@@ -598,13 +599,18 @@ export function StudentGoal() {
     if (result) show(result)
   }
   async function reply() {
-    if (!question || !answer.trim()) return
-    const result = await runAI("goal", () =>
-      api.request("collect_goal", { answer }, undefined, question.id)
-    )
-    if (result) {
-      setAnswer("")
-      show(result)
+    if (!question || !answer.trim() || replying.current) return
+    replying.current = true
+    try {
+      const result = await runAI("goal", () =>
+        api.request("collect_goal", { answer }, undefined, question.id)
+      )
+      if (result) {
+        setAnswer("")
+        show(result)
+      }
+    } finally {
+      replying.current = false
     }
   }
   async function confirm() {
