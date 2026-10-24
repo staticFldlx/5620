@@ -61,6 +61,21 @@ def interactions(student: Any) -> list[dict]:
     return [lviews.interaction_view(e, case=cases.get(str(e.pk))) for e in entries]
 
 
+def plan_choice_record(student: Any) -> dict | None:
+    """The plan request waiting for the student to pick a lesson time; they answer it on the plan page."""
+    waiting = governance.plan_time_choice(student)
+    if waiting is None:
+        return None
+    result = waiting.result.get("result") or {}
+    return {
+        "request_id": str(waiting.request_id),
+        "request_type": waiting.request.type,
+        "question": str(result.get("question") or ""),
+        "message": str(result.get("message") or ""),
+        "slots": list(result.get("slots") or []),
+    }
+
+
 def student_workspace(user: Any) -> dict:
     lessons = list(learning.lessons_for_student(user)[: limit()])
     return {
@@ -70,6 +85,7 @@ def student_workspace(user: Any) -> dict:
         "materials": [lviews.material_view(m) for m in learning.materials_for_lessons(lessons, approved_only=True)],
         "interactions": interactions(user),
         "assessment_sessions": [assessment_record(s) for s in learning.ongoing_assessments(user)[:limit()]],
+        "plan_choice": plan_choice_record(user),
     }
 
 

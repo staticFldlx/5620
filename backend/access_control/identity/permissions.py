@@ -27,8 +27,13 @@ def require_role(user: Any, *roles: str) -> str:
 
 
 def assigned_student_ids(teacher: Any) -> set[Any]:
-    """Students a teacher may see: teacher of their active or pending plan, or assignee of an open review (A10)."""
-    return learning.students_with_plan_teacher(teacher) | governance.students_with_open_cases(teacher)
+    """Students a teacher may see: teacher of their active or pending plan, assignee of an open review (A10),
+    or the teacher of a plan draft that only waits for the student to pick a lesson time."""
+    return (
+        learning.students_with_plan_teacher(teacher)
+        | governance.students_with_open_cases(teacher)
+        | governance.students_awaiting_plan_choice(teacher)
+    )
 
 
 def can_access_student(user: Any, student: Any) -> bool:

@@ -25,7 +25,7 @@
       "path": "/workspace",
       "requirement": "AR01–AR10、AR12；按角色复用基础记录",
       "request": "student_id? (assigned teacher only); cursor?; each list is bounded",
-      "response": "Workspace envelope; server selects Student / Teacher / Founder shape; Student includes assessment_sessions[] with current_item_id and optional follow_up"
+      "response": "Workspace envelope; server selects Student / Teacher / Founder shape; Student includes assessment_sessions[] with current_item_id and optional follow_up, and plan_choice (a plan request waiting for the student to pick a lesson time; answer it via POST /requests with its request_type and context_id = request_id)"
     },
     {
       "method": "POST",
@@ -514,7 +514,8 @@
       "materials[] (references only)",
       "interactions[] (recent; own only)",
       "next_cursor?",
-      "assessment_sessions[] (in_progress; owned by current student)"
+      "assessment_sessions[] (in_progress; owned by current student)",
+      "plan_choice (null unless a plan request waits for the student to pick a lesson time)"
     ],
     "Teacher": [
       "user",
