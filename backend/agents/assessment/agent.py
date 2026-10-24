@@ -14,13 +14,17 @@ Every decision is written to the trace with runtime.note() for GET /requests/{id
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from django.utils import timezone
 from pydantic import BaseModel, ValidationError
 
 from agents.runtime import AgentResult, AgentStatus, AIAgent, TaskInput
+from domain.governance import selectors as governance
+from domain.governance.models import AgentTask, ServiceRequest
 from domain.learning import selectors as learning
 from domain.learning import services as learning_services
+from domain.learning.models import AssessmentSession
 from domain.learning.views import proficiency_view
 
 from . import adaptive, bank, context, fake, prompts
@@ -28,6 +32,7 @@ from .schemas import AnswerReply, ApplyReviewPayload, AssessmentReport, ConductP
 
 AGENT_ID = "assessment"
 PROVISIONAL_NOTE = "This result is provisional until your teacher reviews it."
+MAX_FOCUS_CHARS = 200  # AssessmentSession.focus is a CharField(max_length=200)
 
 
 class AssessmentAgent(AIAgent):
@@ -57,6 +62,10 @@ class AssessmentAgent(AIAgent):
         if session is None or session.student_id != student.pk:
             return _failed("session_not_found", "This assessment could not be found.")
         if session.status != "in_progress":
+            # Recover only an actual unfinished worker task, not a new answer to a closed session.
+            if (getattr(session, "proficiency", None) is not None
+                    and _unfinished_answer_task(task, session)):
+                return self._finish(student, session, session.type, "persisted_result")
             return _failed("session_closed", "This assessment is already finished.")
         return self._answer(student, session, payload, payload.reply)
 
@@ -66,6 +75,13 @@ class AssessmentAgent(AIAgent):
             stage = learning.milestone_stage(payload.input.milestone_stage_id, student)
             if kind != "milestone" or stage is None or not learning.stage_lessons_attended(stage):
                 return _failed("stale_milestone", "This milestone no longer belongs to the active stage.")
+        if _open_session(student) is not None:
+            return _failed("assessment_in_progress", "You already have an assessment in progress. Finish it before starting another one.")
+        if kind == "milestone" and context.current_stage(student) is None:
+            return _failed("no_active_plan", "A milestone assessment needs an active learning plan.")
+        if len(focus) > MAX_FOCUS_CHARS:
+            self.runtime.note("focus_truncated", chars=len(focus))
+            focus = focus[:MAX_FOCUS_CHARS].rstrip()
         learner = context.learner(student, kind)
         skills, proxied = adaptive.plan_skills(learner["focus_skills"], focus)
         level = learner["start_level"]
@@ -93,13 +109,20 @@ class AssessmentAgent(AIAgent):
     def _answer(self, student: Any, session: Any, payload: ConductPayload, reply: AnswerReply) -> AgentResult:
         items = [dict(item) for item in session.items]
         pending = next((i for i in items if i.get("answer") is None), None)
-        if pending is None:  # every item answered but not finished (e.g. the worker stopped): finish now
-            return self._finish(student, session, payload.input.kind, "item_limit_reached")
-        if reply.item_id != pending["item_id"]:
+        if pending is None:
+            # A re-queued task: the first attempt saved this answer, then stopped before the next item
+            # was added. Carry on from the saved answer (score it if needed, then stop or add an item).
+            if reply.item_id != items[-1]["item_id"]:
+                self.runtime.note("unexpected_item", received=reply.item_id, expected=items[-1]["item_id"])
+                return _next_item(session)
+            self.runtime.note("resumed_after_retry", item_id=reply.item_id)
+            reply = AnswerReply(item_id=reply.item_id, answer=items[-1]["answer"])
+        elif reply.item_id != pending["item_id"]:
             self.runtime.note("unexpected_item", received=reply.item_id, expected=pending["item_id"])
             return _next_item(session)
-        session = learning_services.record_answer(AGENT_ID, session, item_id=reply.item_id, answer=reply.answer)
-        items = [dict(item) for item in session.items]
+        else:
+            session = learning_services.record_answer(AGENT_ID, session, item_id=reply.item_id, answer=reply.answer)
+            items = [dict(item) for item in session.items]
         current = next(i for i in items if i["item_id"] == reply.item_id)
         if "score" not in current:  # a re-queued task does not score twice (spec 8.5)
             current.update(self._score(current, reply.answer))
@@ -126,6 +149,13 @@ class AssessmentAgent(AIAgent):
         """UC02 steps 6-7 / UC05 step 5: level, confidence, report; publish or escalate (NFR-02)."""
         existing = getattr(session, "proficiency", None)
         if existing is not None:  # re-queued after the profile was written
+            if existing.status == "changes_requested":
+                return _failed("assessment_changes_requested", "Your teacher asked for a new assessment before your level is updated.")
+            status = "awaiting_review" if existing.status == "pending_review" else "completed"
+            if session.status != status:
+                session = learning_services.update_assessment_session(
+                    AGENT_ID, session, status=status, completed_at=timezone.now(), difficulty=existing.overall_level
+                )
             reason = "low_confidence" if self.runtime.is_low_confidence(existing.confidence) else "insufficient_evidence"
             return self._publish(session, existing, low=existing.status == "pending_review", reason=reason)
 
@@ -133,7 +163,7 @@ class AssessmentAgent(AIAgent):
         scored = [i for i in answered if i.get("score") is not None]
         estimates = [i["estimate"] for i in scored]
         planned = session.items[0].get("planned_skills") or list(adaptive.TEXT_SKILLS)
-        level = adaptive.final_level(estimates)
+        level = adaptive.final_level(estimates, default=session.items[0]["level"])
         signals = adaptive.confidence_signals(
             estimates,
             [i["agreement"] for i in scored],
@@ -258,10 +288,10 @@ class AssessmentAgent(AIAgent):
             "level": level,
             "item_number": number,
             "max_items": adaptive.MAX_ITEMS,
-            "focus": focus or learner["stage_milestone"] or "",
+            "focus": prompts.as_data(focus or learner["stage_milestone"] or "", MAX_FOCUS_CHARS),
             "previous_prompts": previous,
         }
-        context = {k: learner[k] for k in ("goal", "target_level", "kind", "stage_title")}
+        context = {k: prompts.as_data(learner[k] or "") for k in ("goal", "target_level", "kind", "stage_title")}
         item = self._ask(prompts.GENERATE_ITEM, GeneratedItem, learner=context, request=request)
         if item is not None and _is_repeat(item.prompt, previous):
             self.runtime.note("repeated_item_regenerated", item_number=number)
@@ -325,8 +355,8 @@ class AssessmentAgent(AIAgent):
         request = {
             "overall_level": level,
             "kind": kind,
-            "goal": learner["goal"],
-            "target_level": learner["target_level"],
+            "goal": prompts.as_data(learner["goal"] or ""),
+            "target_level": prompts.as_data(learner["target_level"] or ""),
             "previous_confirmed_level": learner["baseline_level"],
         }
         report = self._ask(prompts.REPORT, AssessmentReport, request=request, items=items)
@@ -367,6 +397,27 @@ def _is_repeat(prompt: str, previous: list[str]) -> bool:
     """Same opening words as an earlier item (the model sometimes ignores previous_prompts)."""
     head = " ".join(prompt.lower().split()[:12])
     return any(head == " ".join(p.lower().split()[:12]) for p in previous)
+
+
+def _unfinished_answer_task(task: TaskInput, session: Any) -> bool:
+    try:
+        task_id, request_id = UUID(str(task.task_id)), UUID(str(task.ctx.request_id))
+    except (ValueError, TypeError):
+        return False
+    return AgentTask.objects.filter(pk=task_id, request_id=request_id,
+        status__in=("queued", "running"),
+        payload__previous__result__session_id=str(session.pk)).exists()
+
+
+def _open_session(student: Any) -> Any | None:
+    """An in-progress session with a live request, including answers queued or being scored."""
+    for session in AssessmentSession.objects.filter(student=student, status="in_progress").order_by("-created_at"):
+        request = governance.request_for_assessment(session.pk)
+        if request is not None and request.status in (
+            ServiceRequest.Status.AWAITING_INPUT, ServiceRequest.Status.QUEUED, ServiceRequest.Status.RUNNING
+        ):
+            return session
+    return None
 
 
 def _next_item(session: Any) -> AgentResult:
