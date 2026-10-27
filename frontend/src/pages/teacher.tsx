@@ -54,12 +54,12 @@ function useTeacher() {
   }
 }
 const displayName = (id: string, student?: StudentRecord) =>
-  student?.name ||
+  student?.name?.trim() ||
   (id === "student-ivy"
     ? "Ivy Lin"
     : id === "student-sophia"
       ? "Sophia Chen"
-      : id)
+      : "Student (name unavailable)")
 export function TeacherOverview() {
   const { students, lessons, reviews } = useTeacher()
   const next = lessons.find((x) => x.status === "confirmed")
@@ -1137,7 +1137,7 @@ function ReviewSubject({ detail }: { detail: ReviewDetail }) {
                 <ul>
                   {detail.draft_source_refs.map((source, index) => (
                     <li key={index}>
-                      {source.title || source.material_id}
+                      {source.title?.trim() || "Source title unavailable"}
                       {source.locator ? ` · ${source.locator}` : ""}
                     </li>
                   ))}

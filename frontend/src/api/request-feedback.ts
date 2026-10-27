@@ -18,7 +18,8 @@ export function requestFeedback(
     }
   if (["queued", "running"].includes(request.status))
     return {
-      message: `Request ${request.id} is still processing. Refresh its status before retrying.`,
+      message:
+        "Your request is still processing. Refresh its status before retrying.",
     }
   if (request.status === "pending_review")
     return {

@@ -7,6 +7,7 @@ import {
 } from "react"
 import type { ReactNode } from "react"
 import { useNavigate } from "react-router"
+import { displayText } from "@/lib/display-text"
 import { requestFeedback } from "@/api/request-feedback"
 import { api, sessionStore } from "@/api/client"
 import type { User, Workspace } from "@/api/types"
@@ -117,7 +118,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await work()
       await refresh()
       const feedback = requestFeedback(result)
-      setNotice(feedback?.message || success || "")
+      setNotice(displayText(feedback?.message || success || ""))
       if (feedback?.approvals && user?.role === "Founder") setNoticeHref("/f4")
       return result
     } catch (error) {
@@ -129,7 +130,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setNotice(
         e.code === "ECONNABORTED"
           ? "The server may still be processing this request. Refresh your records before submitting again."
-          : e.response?.data?.message || e.message || "Request failed"
+          : displayText(
+              e.response?.data?.message || e.message || "Request failed"
+            )
       )
       return undefined
     } finally {

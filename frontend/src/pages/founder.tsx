@@ -11,6 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react"
 import { api } from "@/api/client"
+import { displayText, type DisplayReference } from "@/lib/display-text"
 import { useApp } from "@/app-context"
 import { AIButton } from "@/components/ai-button"
 import type { Case, Proposal } from "@/api/types"
@@ -54,7 +55,70 @@ function readableLabel(value: string) {
     const words = value.split(".").at(-1)!.replaceAll("_", " ")
     return words.charAt(0).toUpperCase() + words.slice(1)
   }
-  return value || "No recent activity"
+  return displayText(value) || "No recent activity"
+}
+// Display labels only: original identifiers remain in API calls and audit records.
+function governanceLabel(value: string) {
+  const labels: Record<string, string> = {
+    corpus: "Learning materials update",
+    recovery: "Service recovery",
+    configuration: "Agent configuration",
+    permission: "Access permissions",
+    archive: "Record archiving",
+    prompt: "AI instructions update",
+    manual: "Manual change",
+    pending: "Awaiting decision",
+    pending_review: "Awaiting review",
+    awaiting_approval: "Awaiting approval",
+    recovery_pending_verification: "Recovery awaiting verification",
+    not_started: "Not started",
+    manual_review: "Manual action required",
+    pending_implementation: "Not implemented",
+    succeeded: "Completed successfully",
+    "agent.healthy": "Agent resumed",
+    "agent.paused": "Agent paused",
+    "agent.correction_requested": "Agent correction requested",
+    "user.login": "User signed in",
+    "profile.created": "Learning profile created",
+    "profile.updated": "Learning profile updated",
+    "proficiency.recorded": "Assessment result recorded",
+    "proficiency.updated": "Assessment result updated",
+    "assessment_session.created": "Assessment started",
+    "assessment_session.updated": "Assessment progress updated",
+    "escalation.created": "Human review requested",
+    "escalation.resolved": "Human review completed",
+    "availability.replaced": "Teaching availability updated",
+    "proposal.verified": "Proposal execution verified",
+    "proposal.rollback_metadata_saved": "Rollback information saved",
+    "history.explain": "Learning question recorded",
+    "history.resources": "Learning resources recommended",
+    "history.practice": "Practice exercise created",
+    "history.practice_answer": "Practice feedback recorded",
+    "history.progress_decision": "Learning progress decision recorded",
+    "history.plan_draft": "Plan draft recorded",
+    "history.material_completed": "Learning material completed",
+    "teaching_support.corpus_gap": "Missing learning materials reported",
+  }
+  if (labels[value]) return labels[value]
+  // Preserve narrative text; expand new machine labels without dropping the subject.
+  if (/^[a-z_]+(?:\.[a-z_]+)*$/.test(value)) {
+    const words = value.replaceAll(".", " ").replaceAll("_", " ")
+    return words.charAt(0).toUpperCase() + words.slice(1)
+  }
+  return displayText(value)
+}
+function Details({
+  value,
+  references = [],
+}: {
+  value: string
+  references?: DisplayReference[]
+}) {
+  return (
+    <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+      {displayText(value, references)}
+    </p>
+  )
 }
 function useOperations() {
   return useApp().workspace?.operations
@@ -168,8 +232,8 @@ export function FounderOverview() {
             .map((item) => (
               <Row
                 key={item.id}
-                title={item.subject}
-                detail={item.trigger}
+                title={displayText(item.subject)}
+                detail={displayText(item.trigger)}
                 right={
                   <Link
                     className="text-link"
@@ -290,10 +354,10 @@ export function FounderCases() {
                 setNote("")
               }}
             >
-              <strong>{item.subject}</strong>
-              <small>{item.trigger}</small>
+              <strong>{displayText(item.subject)}</strong>
+              <small>{displayText(item.trigger)}</small>
               <Pill tone={item.status === "resolved" ? "good" : "warn"}>
-                {item.status}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -302,16 +366,19 @@ export function FounderCases() {
           {detail ? (
             <>
               <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
-                {detail.id} · {detail.status}
+                {governanceLabel(detail.status)}
               </Pill>
-              <h3>{detail.subject}</h3>
-              <p>{detail.diagnosis}</p>
+              <h3>{displayText(detail.subject)}</h3>
+              <Details value={detail.diagnosis} />
               <div className="visual-panel short">
                 <AIVisual variant="path" />
               </div>
               <h3>Evidence</h3>
-              {detail.evidence.map((item) => (
-                <Row key={item.ref} title={item.ref} detail={item.summary} />
+              {detail.evidence.map((item, index) => (
+                <section key={`${item.ref}-${index}`}>
+                  <h4>Evidence {index + 1}</h4>
+                  <Details value={item.summary} />
+                </section>
               ))}
               {detail.status !== "decided" && detail.status !== "resolved" && (
                 <>
@@ -390,10 +457,10 @@ export function FounderIncidents() {
               key={item.id}
               onClick={() => setSelected(item.id)}
             >
-              <strong>{item.subject}</strong>
-              <small>{item.trigger}</small>
+              <strong>{displayText(item.subject)}</strong>
+              <small>{displayText(item.trigger)}</small>
               <Pill tone={item.status === "resolved" ? "good" : "warn"}>
-                {item.status.replace("_", " ")}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -403,16 +470,19 @@ export function FounderIncidents() {
             {detail ? (
               <>
                 <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
-                  {detail.id} · {detail.status.replace("_", " ")}
+                  {governanceLabel(detail.status)}
                 </Pill>
-                <h3>{detail.subject}</h3>
-                <p>{detail.diagnosis}</p>
+                <h3>{displayText(detail.subject)}</h3>
+                <Details value={detail.diagnosis} />
                 <div className="visual-panel short">
                   <AIVisual variant="scan" />
                 </div>
                 <h3>Evidence</h3>
-                {detail.evidence.map((item) => (
-                  <Row key={item.ref} title={item.ref} detail={item.summary} />
+                {detail.evidence.map((item, index) => (
+                  <section key={`${item.ref}-${index}`}>
+                    <h4>Evidence {index + 1}</h4>
+                    <Details value={item.summary} />
+                  </section>
                 ))}
               </>
             ) : (
@@ -427,12 +497,13 @@ export function FounderIncidents() {
               <span>04 · Verify</span>
             </div>
             <p>
-              {detail?.verification ||
-                "Any controlled recovery must be approved and verified before closure."}
+              {detail?.verification
+                ? displayText(detail.verification)
+                : "Any controlled recovery must be approved and verified before closure."}
             </p>
             {detail?.proposal_id && (
               <Link className="action primary" to="/f4">
-                Review proposal {detail.proposal_id} <ArrowRight size={15} />
+                Review recovery proposal <ArrowRight size={15} />
               </Link>
             )}
             <label className="field-label">
@@ -506,12 +577,10 @@ export function FounderApprovals() {
                 setNote("")
               }}
             >
-              <strong>{item.title}</strong>
-              <small>
-                {item.type} · {item.id}
-              </small>
+              <strong>{displayText(item.title)}</strong>
+              <small>{governanceLabel(item.type)}</small>
               <Pill tone={item.status === "pending" ? "warn" : "good"}>
-                {item.status}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -521,25 +590,53 @@ export function FounderApprovals() {
             {detail ? (
               <>
                 <Pill tone={detail.status === "pending" ? "warn" : "good"}>
-                  {detail.status}
+                  {governanceLabel(detail.status)}
                 </Pill>
-                <h3>{detail.title}</h3>
+                <h3>{displayText(detail.title)}</h3>
                 <div className="compare">
                   <div>
                     <small>Before</small>
-                    <p>{detail.before}</p>
+                    <Details value={detail.before} />
                   </div>
                   <div>
                     <small>After</small>
-                    <p>{detail.after}</p>
+                    <Details value={detail.after} />
                   </div>
                 </div>
-                <Row title="Evidence" detail={detail.evidence.join(" ")} />
-                <Row title="Validation" detail={detail.validation} />
-                <Row title="Rollback" detail={detail.rollback} />
+                <section>
+                  <h4>Evidence</h4>
+                  {detail.evidence.length ? (
+                    detail.evidence.map((evidence, index) => (
+                      <Details
+                        key={index}
+                        value={evidence}
+                        references={[
+                          ...(ops?.cases.map((item) => ({
+                            id: item.id,
+                            label: item.subject,
+                          })) || []),
+                          {
+                            id: evidence,
+                            label: `Supporting record ${index + 1}`,
+                          },
+                        ]}
+                      />
+                    ))
+                  ) : (
+                    <p>No supporting evidence provided.</p>
+                  )}
+                </section>
+                <section>
+                  <h4>Validation</h4>
+                  <Details value={detail.validation} />
+                </section>
+                <section>
+                  <h4>Rollback</h4>
+                  <Details value={detail.rollback} />
+                </section>
                 <p>
-                  Execution: {detail.execution.status}. Approval does not itself
-                  verify a recovery.
+                  Execution: {governanceLabel(detail.execution.status)}.
+                  Approval does not itself verify a recovery.
                 </p>
                 {detail.status === "pending" && (
                   <>
@@ -579,8 +676,30 @@ export function FounderApprovals() {
             {ops?.audit.map((entry) => (
               <Row
                 key={entry.id}
-                title={`${entry.action} · ${entry.subject_id}`}
-                detail={`${time(entry.time)} · ${entry.actor_name} · ${entry.result}`}
+                title={governanceLabel(entry.action)}
+                detail={displayText(
+                  [
+                    proposals.find((item) => item.id === entry.subject_id)
+                      ?.title ||
+                      ops.cases.find((item) => item.id === entry.subject_id)
+                        ?.subject,
+                    time(entry.time),
+                    entry.actor_name,
+                    entry.result,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                  [
+                    ...proposals.map((item) => ({
+                      id: item.id,
+                      label: item.title,
+                    })),
+                    ...ops.cases.map((item) => ({
+                      id: item.id,
+                      label: item.subject,
+                    })),
+                  ]
+                )}
               />
             ))}
           </Panel>

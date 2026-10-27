@@ -40,7 +40,7 @@ async function settle(
     if (Date.now() >= deadline) {
       if (!fail) return value
       throw new Error(
-        `Request ${value.id} is still processing. Refresh before submitting again.`
+        "Your request is still processing. Refresh before submitting again."
       )
     }
     await new Promise((resolve) => setTimeout(resolve, 750))
@@ -64,7 +64,7 @@ async function assessment(
   const envelope = await settle(value, false)
   if (["queued", "running"].includes(envelope.status))
     throw new Error(
-      `Assessment request ${envelope.id} is still processing. Resume it from your assessment list shortly.`
+      "Your assessment is still processing. Resume it from your assessment list shortly."
     )
   if (typeof envelope.result.session_id !== "string")
     throw new Error(
