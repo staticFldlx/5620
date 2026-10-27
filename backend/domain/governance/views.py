@@ -96,7 +96,7 @@ def business_case_view(case: EscalationCase) -> dict:
         "available_actions": (["widen_match", "request_teacher", "resolve"] if case.task and case.task.target_agent == "planning" and case.task.reason == "teacher_unavailable" else ["resolve", "request_teacher"]),
         "id": str(case.pk),
         "kind": "business",
-        "status": "pending" if case.status == EscalationCase.Status.OPEN else "resolved",
+        "status": ("followup_pending" if case.outcome == "followup_pending" else "pending") if case.status == EscalationCase.Status.OPEN else "resolved",
         "subject": case.summary or case.trigger[:120],
         "trigger": case.trigger,
         "diagnosis": case.diagnosis,

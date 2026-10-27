@@ -232,8 +232,12 @@ class AssessmentAgent(AIAgent):
                 fields: dict[str, Any] = {"status": "confirmed", "overall_level": level, "review_note": decision.note, **reviewer}
                 feedback = record.feedback.replace(PROVISIONAL_NOTE, "").strip()
                 if level != record.overall_level:
-                    feedback = f"{feedback} Your teacher set your level to {level}.".strip()
                     self.runtime.note("teacher_corrected_level", from_level=record.overall_level, to_level=level)
+                    profile = learning.profile_for(session.student)
+                    target = (profile.structured_objective or {}).get("target_level", "the learning goal") if profile else "the learning goal"
+                    fields["gap_to_goal"] = f"Teacher-confirmed level {level}; target {target}. Teacher evidence: {decision.note}"
+                    # Per-skill observations remain evidence, not a competing overall level.
+                    feedback = f"Your teacher set your level to {level}. {decision.note}".strip()
                 fields["feedback"] = feedback
                 record = learning_services.update_proficiency(AGENT_ID, record, **fields)
                 learning_services.update_assessment_session(AGENT_ID, session, status="completed")

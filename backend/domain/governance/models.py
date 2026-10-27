@@ -254,3 +254,11 @@ class AgentRuntimeOverride(models.Model):
 
     def __str__(self):
         return f"{self.agent_id}: {self.timeout_seconds}"
+
+
+class RecoveryAttempt(DomainModel):
+    """At most one controlled retry per failed task, including concurrent monitor runs."""
+    WRITERS = frozenset({"task_queue"})
+    incident = models.ForeignKey(IncidentRecord, on_delete=models.PROTECT, related_name="recovery_attempts")
+    source_task = models.OneToOneField(AgentTask, on_delete=models.PROTECT, related_name="recovery_attempt")
+    retry_task = models.OneToOneField(AgentTask, null=True, on_delete=models.PROTECT, related_name="recovery_execution")

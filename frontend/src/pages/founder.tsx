@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import {
   Activity,
   ArrowRight,
@@ -14,7 +14,7 @@ import { api } from "@/api/client"
 import { displayText, type DisplayReference } from "@/lib/display-text"
 import { useApp } from "@/app-context"
 import { AIButton } from "@/components/ai-button"
-import type { Case, Proposal } from "@/api/types"
+import type { Agent, Case, Proposal } from "@/api/types"
 import {
   AIVisual,
   Empty,
@@ -26,6 +26,7 @@ import {
 } from "@/components/layout"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 const time = (value: string) =>
   new Date(value).toLocaleString("en-AU", {
     day: "numeric",
@@ -72,7 +73,12 @@ function governanceLabel(value: string) {
     awaiting_approval: "Awaiting approval",
     recovery_pending_verification: "Recovery awaiting verification",
     not_started: "Not started",
-    manual_review: "Manual action required",
+    manual_review: "Approved · manual action still required",
+    followup_pending: "Waiting for teacher follow-up",
+    followup_received: "Teacher follow-up received",
+    configured_unverified: "Configured · not health-checked",
+    no_recent_check: "No recent monitoring check",
+    recent_check: "Recent monitoring check completed",
     pending_implementation: "Not implemented",
     succeeded: "Completed successfully",
     "agent.healthy": "Agent resumed",
@@ -127,6 +133,7 @@ export function FounderOverview() {
   const ops = useOperations()
   const { run, busy } = useApp()
   const [controlNote, setControlNote] = useState("")
+  const [controlAgent, setControlAgent] = useState<Agent | null>(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
   const logs = ops?.logs || []
   const visibleLogs = showAllLogs ? logs : logs.slice(0, 10)
@@ -169,20 +176,29 @@ export function FounderOverview() {
             Pause or resume an individual agent. Existing pages and saved
             content remain available.
           </p>
-          <label className="field-label">
-            Agent decision reason
-            <Textarea
-              aria-describedby="agent-control-help"
-              value={controlNote}
-              onChange={(event) => setControlNote(event.target.value)}
-              placeholder="Explain why the agent should be paused or resumed"
-            />
-          </label>
-          <p id="agent-control-help">
-            Enter a reason to enable the buttons, then choose an agent below.
-            The reason is recorded with that action; it is not a command to all
-            agents.
-          </p>
+          <p id="agent-control-help">Choose an agent. Review the action and enter a reason in the confirmation window.</p>
+          <Dialog open={!!controlAgent} onOpenChange={(open) => { if (!open && !busy) { setControlAgent(null); setControlNote("") } }}>
+            <DialogContent className="agent-control-dialog" showCloseButton={!busy}>
+              <DialogHeader>
+                <DialogTitle>{controlAgent?.status === "paused" ? "Resume" : "Pause"} {controlAgent?.name}</DialogTitle>
+                <DialogDescription>{controlAgent?.status === "paused"
+                  ? "New tasks can use this agent again. Enter the reason for resuming it."
+                  : "New tasks that require this agent will be blocked. Consider the impact and enter your reason before pausing."}</DialogDescription>
+              </DialogHeader>
+              <label className="field-label">Reason
+                <Textarea autoFocus value={controlNote} disabled={busy} onChange={(event) => setControlNote(event.target.value)} placeholder="Explain your decision" />
+              </label>
+              <DialogFooter>
+                <Button className="action secondary" disabled={busy} onClick={() => { setControlAgent(null); setControlNote("") }}>Cancel</Button>
+                <Button className="action primary" disabled={busy || !controlNote.trim()} onClick={async () => {
+                  if (!controlAgent) return
+                  const action = controlAgent.status === "paused" ? "resume" : "pause"
+                  const result = await run(() => api.decideAgent(controlAgent.id, action, controlNote.trim()), `Agent ${action === "resume" ? "resumed" : "paused"}.`)
+                  if (result) { setControlAgent(null); setControlNote("") }
+                }}>{busy ? "Saving…" : "Confirm"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <div className="agent-grid">
             {ops?.agents.map((agent) => (
               <div className="agent-card" key={agent.id}>
@@ -198,20 +214,9 @@ export function FounderOverview() {
                   aria-describedby="agent-control-help"
                   disabled={
                     busy ||
-                    !controlNote.trim() ||
                     agent.status === "not_implemented"
                   }
-                  onClick={() =>
-                    run(
-                      () =>
-                        api.decideAgent(
-                          agent.id,
-                          agent.status === "paused" ? "resume" : "pause",
-                          controlNote
-                        ),
-                      `Agent ${agent.status === "paused" ? "resumed" : "paused"}.`
-                    )
-                  }
+                  onClick={() => { setControlAgent(agent); setControlNote("") }}
                 >
                   {agent.status === "paused" ? (
                     <Play size={15} />
@@ -410,7 +415,7 @@ export function FounderCases() {
                     </Button>
                     <Button
                       className="action secondary"
-                      disabled={busy || !note.trim()}
+                      disabled={busy || !note.trim() || detail.status === "followup_pending"}
                       onClick={() => decide("request_followup")}
                     >
                       Request follow-up
@@ -502,7 +507,7 @@ export function FounderIncidents() {
                 : "Any controlled recovery must be approved and verified before closure."}
             </p>
             {detail?.proposal_id && (
-              <Link className="action primary" to="/f4">
+              <Link className="action primary" to={`/f4?proposal=${encodeURIComponent(detail.proposal_id!)}`}>
                 Review recovery proposal <ArrowRight size={15} />
               </Link>
             )}
@@ -540,15 +545,19 @@ export function FounderApprovals() {
   const ops = useOperations()
   const { run, busy } = useApp()
   const proposals = ops?.proposals || []
-  const [selected, setSelected] = useState(proposals[0]?.id || "")
-  const [detail, setDetail] = useState<Proposal | null>(null)
+  const [params, setParams] = useSearchParams()
+  const selected = params.get("proposal") || proposals[0]?.id || ""
+  const setSelected = (id: string) => setParams({ proposal: id })
+  const [loadedDetail, setDetail] = useState<Proposal | null>(null)
+  const detail = loadedDetail?.id === selected ? loadedDetail : null
   const [note, setNote] = useState("")
   useEffect(() => {
+    let active = true
     if (selected)
-      api
-        .getProposal(selected)
-        .then(setDetail)
-        .catch(() => setDetail(null))
+      api.getProposal(selected)
+        .then((value) => { if (active) setDetail(value) })
+        .catch(() => { if (active) setDetail(null) })
+    return () => { active = false }
   }, [selected, proposals.length])
   async function decide(action: "approve" | "reject") {
     const result = await run(
@@ -638,6 +647,12 @@ export function FounderApprovals() {
                   Execution: {governanceLabel(detail.execution.status)}.
                   Approval does not itself verify a recovery.
                 </p>
+                {detail.execution.status === "manual_review" && (
+                  <div className="result-banner" role="status">
+                    <strong>Approved for manual action — not executed</strong>
+                    <p>This proposal has no automatic executor. An operator must make and verify the change. Any related incident remains open.</p>
+                  </div>
+                )}
                 {detail.status === "pending" && (
                   <>
                     <label className="field-label">

@@ -159,6 +159,8 @@ def test_unconverged_result_goes_to_the_teacher_who_corrects_it(agent, ivy, emil
     assert (record.status, record.overall_level, record.review_note) == ("confirmed", "B2", "Class work shows B2")
     assert str(record.reviewed_by_id) == key("teacher-emily")
     assert "set your level to B2" in record.feedback and "provisional until" not in record.feedback
+    assert "Teacher-confirmed level B2" in record.gap_to_goal
+    assert "Working at" not in record.gap_to_goal
     assert AssessmentSession.objects.get(pk=final["id"]).status == "completed"
 
 

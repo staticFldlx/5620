@@ -37,6 +37,7 @@ REVIEW_ACTIONS = {
     "plan": {"approve", "request_changes"},
     "assessment": {"confirm_result", "request_changes"},
     "question": {"answer", "request_changes"},
+    "business": {"answer"},
 }
 # Founder business-case actions: contract.json values plus the values the frontend buttons send (A12).
 CASE_ACTIONS = {
@@ -115,6 +116,9 @@ class EscalationManager:
         decision = {"action": action, "note": note}
         if corrected_level:
             decision["corrected_level"] = corrected_level  # teacher override; the note is the evidence
+        if case.subject_type == "business":
+            gov.record_followup_response(ESCALATION_MANAGER, case, decision=decision, by=by)
+            return None
         return self.resolve(case, decision, by)
 
     def decide_business_case(self, case: EscalationCase, *, action: str, note: str, by: Any):
@@ -123,6 +127,14 @@ class EscalationManager:
             raise DomainError("invalid_action", f"Unknown case action: {action}", status=400)
         if not note.strip():
             raise DomainError("note_required", "A decision note is required.", status=400)
+        if action == "request_followup":
+            teacher = learning.current_teacher(case.student) if case.student_id else None
+            teacher = teacher or governance.teacher_by_email(settings.INTAKE_TEACHER_EMAIL)
+            if teacher is None:
+                raise DomainError("teacher_unavailable", "No teacher is available for follow-up; the case remains open.")
+            child = gov.request_case_followup(ESCALATION_MANAGER, case, teacher=teacher, note=note, by=by)
+            self.route_case(child)
+            return None
         return self.resolve(case, {"action": normalised, "note": note, "requested_action": action}, by)
 
     def decide_proposal(self, proposal: UpdateProposal, *, approve: bool, note: str, by: Any, version: int | None = None):

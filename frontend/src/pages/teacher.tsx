@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
+import { upcomingLessons } from "@/lib/lessons"
 import {
   ArrowRight,
   CalendarDays,
@@ -62,7 +63,8 @@ const displayName = (id: string, student?: StudentRecord) =>
       : "Student (name unavailable)")
 export function TeacherOverview() {
   const { students, lessons, reviews } = useTeacher()
-  const next = lessons.find((x) => x.status === "confirmed")
+  const upcoming = upcomingLessons(lessons)
+  const next = upcoming[0]
   return (
     <Page
       eyebrow="AI SUPPORT · HUMAN JUDGEMENT"
@@ -84,7 +86,7 @@ export function TeacherOverview() {
         />
         <Metric
           label="Upcoming lessons"
-          value={lessons.filter((x) => x.status === "confirmed").length}
+          value={upcoming.length}
           note="Confirmed teaching sessions"
           icon={CalendarDays}
         />
@@ -92,7 +94,7 @@ export function TeacherOverview() {
       <div className="board two-thirds">
         <Panel className="hero-panel" title="Your next lesson">
           <div className="hero-content">
-            <Pill tone="good">Confirmed</Pill>
+            {next && <Pill tone="good">Confirmed</Pill>}
             <h2>{next?.title || "No upcoming lesson"}</h2>
             <p>
               {next
@@ -667,7 +669,7 @@ export function TeacherReviews() {
       subtitle="Approve a plan, confirm an uncertain result, or answer an escalated question."
     >
       <div className="choice-row tabs">
-        {["all", "plan", "assessment", "question"].map((item) => (
+        {["all", "plan", "assessment", "question", "business"].map((item) => (
           <button
             key={item}
             className={`choice ${filter === item ? "active" : ""}`}
@@ -785,16 +787,16 @@ export function TeacherReviews() {
                           ? correctedLevel
                             ? "Confirm corrected result"
                             : "Confirm result"
-                          : "Answer question"}{" "}
+                          : detail.review.kind === "business" ? "Send follow-up" : "Answer question"}{" "}
                       <ArrowRight size={15} />
                     </Button>
-                    <Button
+                    {detail.review.kind !== "business" && <Button
                       className="action secondary"
                       disabled={busy || !note.trim()}
                       onClick={() => decide("request_changes")}
                     >
                       Request changes
-                    </Button>
+                    </Button>}
                   </div>
                 </>
               )}
@@ -1062,6 +1064,10 @@ function LessonPreparation({
 }
 
 function ReviewSubject({ detail }: { detail: ReviewDetail }) {
+  if (detail.review.kind === "business") {
+    const item = detail.subject as { subject?: string; diagnosis?: string } | null
+    return <div className="review-subject"><h3>{item?.subject || "Founder follow-up"}</h3><p>{item?.diagnosis}</p><p>Your response goes to the Founder. The exception stays open until the Founder resolves it.</p></div>
+  }
   if (detail.review.kind === "plan") {
     const plan = detail.subject as Plan | null
     return (

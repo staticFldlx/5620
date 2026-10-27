@@ -13,50 +13,16 @@ from domain.governance.services import (
 )
 
 
-def execute_approved_recovery(proposal_id: str) -> dict:
-    """
-    Validate an approved recovery proposal.
-
-    This version records a safe handoff, not an actual retry.
-    """
-
+def execute_approved_recovery(proposal_id: str, runtime) -> dict:
     proposal = UpdateProposal.objects.get(pk=proposal_id)
-
-    if proposal.change_type != "recovery":
-        raise ValueError("Not a recovery proposal")
-
-    if proposal.status != "approved":
+    if proposal.change_type != "recovery" or proposal.status != "approved":
         raise PermissionError("Founder approval required")
-
-    if proposal.execution_status != "not_started":
-        raise ValueError("Proposal already processed")
-
-    action = proposal.payload.get("action")
-
-    if action not in (
-            "retry_request",
-            "request_founder_review",
-    ):
-        raise ValueError("Unsupported recovery action")
-
-    # No real recovery is performed yet.
-    # A retry requires a validated, idempotent task reference.
-    record_proposal_execution(
-        "tech_operations",
-        proposal,
-        execution_status="pending_implementation",
-    )
-
-    return {
-        "proposal_id": str(proposal.pk),
-        "action": action,
-        "execution_status": "pending_implementation",
-        "recovery_performed": False,
-        "message": (
-            "Founder approval verified. "
-            "Actual recovery execution is not implemented."
-        ),
-    }
+    if not proposal.incident_id:
+        raise ValueError("Recovery proposal has no incident")
+    result = runtime.call_tool("recover_incident", {"incident_id": str(proposal.incident_id), "proposal_id": str(proposal.pk)})
+    if "error" in result:
+        raise ValueError(result["error"])
+    return result
 
 
 def resume_approved_agent(proposal_id: str) -> dict:
@@ -159,3 +125,17 @@ def resume_approved_agent(proposal_id: str) -> dict:
                 if verified else "escalated"
             ),
         }
+
+
+def verify_pending_recoveries():
+    from domain.governance.models import AgentTask, IncidentRecord
+    from domain.governance.services import record_audit
+    for incident in IncidentRecord.objects.filter(status="recovery_pending_verification"):
+        latest = AgentTask.objects.filter(target_agent__in=incident.affected_components, started_at__gt=incident.updated_at).order_by("-started_at").first()
+        if latest is None or latest.status in ("queued", "running"):
+            continue
+        verified = latest.status == "succeeded"
+        update_incident("tech_operations", incident, status="resolved" if verified else "escalated",
+                        verification="fresh_task_verified" if verified else "fresh_task_failed")
+        record_audit("tech_operations", "maintenance.report", incident,
+                     detail={"summary": "Post-recovery task verified; incident closed." if verified else "Post-recovery task failed; Founder follow-up required.", "verified": verified})

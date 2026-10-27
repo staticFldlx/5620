@@ -103,10 +103,11 @@ def build_runtime(agent_cls: type[AIAgent], task: TaskInput) -> AgentRuntime:
     script = getattr(agent_cls, "fake_script", None)
     if settings.LLM_PROVIDER == "fake" and callable(script):
         adapter = FakeAdapter(script(task), default="")
-    return AgentRuntime(
-        adapter,
-        runtime_config(agent_cls.agent_id),
-    )
+    runtime = AgentRuntime(adapter, runtime_config(agent_cls.agent_id))
+    if agent_cls.agent_id == "tech_operations" and task.ctx.actor_role in ("founder", "system"):
+        from .recovery import recovery_tool
+        runtime.tools.register(recovery_tool())
+    return runtime
 
 
 def reset_caches() -> None:

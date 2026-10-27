@@ -13,7 +13,7 @@ from .. import lookups, presenters
 from ..schemas import ReviewDecisionIn, ReviewDecisionOut, ReviewDetailOut
 
 router = Router(tags=["reviews"])
-LEARNING = {EscalationCase.Subject.ASSESSMENT, EscalationCase.Subject.PLAN, EscalationCase.Subject.QUESTION}
+LEARNING = {EscalationCase.Subject.ASSESSMENT, EscalationCase.Subject.PLAN, EscalationCase.Subject.QUESTION, EscalationCase.Subject.BUSINESS}
 
 
 def _assigned_case(user, review_id: str) -> EscalationCase:

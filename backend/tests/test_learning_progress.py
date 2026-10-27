@@ -164,6 +164,8 @@ def test_deviation_requests_one_revision_preserving_active_plan(progress_plan, l
     assert learning.active_plan(progress_plan.student).pk == progress_plan.pk
     assert learning.pending_plan(progress_plan.student).based_on_id == record.pk
     assert progress_plan.stages.get(pk=stage.pk).status != "completed"
+    if linked:
+        assert learning.milestone_status(stage) == "confirmed"
     assessment_to_planning(progress_plan.student, result(progress_plan, level="A2"))
     assert LearningPlan.objects.filter(student=progress_plan.student, status="pending_review").count() == 1
 

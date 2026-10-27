@@ -122,6 +122,12 @@ def diagnose_and_record(runtime, incident_id: str) -> dict:
 
             proposal_id = str(proposal.pk)
 
+    if decision.execution_mode == "automatic":
+        result = runtime.call_tool("recover_incident", {"incident_id": str(incident.pk)})
+        if "error" in result:
+            update_incident("tech_operations", incident, status="escalated", verification="retry_failed")
+        incident.refresh_from_db()
+        next_status = incident.status
     return {
         "incident_id": str(incident.pk),
         "status": next_status,

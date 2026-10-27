@@ -62,6 +62,10 @@ def _diagnosis(**call) -> dict:
     data = json.loads(_content(call))
     paused = [agent for agent, status in (data.get("agent_status") or {}).items() if status == "paused"]
 
+    if not paused and any(e.get("summary") in ("llm_unavailable", "task_timeout", "provider_timeout", "transient_timeout") for e in data.get("evidence", [])):
+        return {"probable_cause": "A task reported a transient provider failure.",
+                "explanation": "The recorded failure code supports a controlled retry, subject to the execution policy.",
+                "confidence": 0.85, "recommended_action": "retry_request", "risk_level": "low"}
     if paused:
         return {
             "probable_cause": f"{paused[0]} is paused, so each of its tasks fails with agent_paused.",

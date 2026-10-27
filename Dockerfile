@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
 COPY --from=frontend /app/frontend/dist ./frontend_dist
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py load_demo_data && exec gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 8 --timeout 120"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py load_demo_data && PORT=${PORT:-10000} exec python serve.py"]
