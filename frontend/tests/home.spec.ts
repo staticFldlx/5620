@@ -6,13 +6,16 @@ test("homepage cycles every six seconds without playback controls and opens real
   await page.emulateMedia({ reducedMotion: "no-preference" })
   await page.clock.install()
   await page.goto("/")
-  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "orbit")
+  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "book")
   await page.clock.fastForward(6500)
-  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "nexus")
+  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "plan")
   await expect(page.locator(".landing-motion")).toHaveCount(0)
   await expect(page.locator(".landing-bottom")).toHaveCount(0)
   await page.clock.fastForward(6500)
-  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "portal")
+  await expect(page.locator(".landing")).toHaveAttribute(
+    "data-scene",
+    "conversation"
+  )
   await page.getByRole("link", { name: "Get started" }).click()
   await expect(page).toHaveURL(/\/p01$/)
   await expect(page.getByLabel("Email address")).toBeVisible()
@@ -25,7 +28,7 @@ test("reduced motion keeps the homepage still", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto("/")
   await expect(page.locator(".landing-motion")).toHaveCount(0)
-  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "orbit")
+  await expect(page.locator(".landing")).toHaveAttribute("data-scene", "book")
 })
 
 for (const width of [320, 390, 1024]) {
