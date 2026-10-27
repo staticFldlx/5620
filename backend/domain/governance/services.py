@@ -11,7 +11,7 @@ from django.utils import timezone
 from domain.common import AGENT_IDS, AGENT_NAMES, COMPONENT_NAMES, DomainError, check_writer, current_trace, role_of, save_fields, writes
 from infrastructure.monitoring import log_event
 
-from .models import AgentState, AgentTask, AuditLog, EscalationCase, IncidentRecord, Notification, ServiceRequest, UpdateProposal
+from .models import RecoveryAttempt, AgentState, AgentTask, AuditLog, EscalationCase, IncidentRecord, Notification, ServiceRequest, UpdateProposal
 
 
 # --- Audit Service (NFR-07) ---------------------------------------------------
@@ -271,3 +271,41 @@ def update_configuration_rollback_metadata(
             "rollback_available": True,
         },
     )
+
+
+@transaction.atomic
+def request_case_followup(actor, case, *, teacher, note, by):
+    case = EscalationCase.objects.select_for_update().get(pk=case.pk)
+    if case.status != "open":
+        raise DomainError("case_not_open", "This case has already been decided.")
+    existing = EscalationCase.objects.filter(subject_type="business", subject_id=str(case.pk), status="open").first()
+    if existing:
+        raise DomainError("followup_pending", "A teacher is already following up this case.")
+    child = create_case(actor, kind="review", subject_type="business", subject_id=str(case.pk),
+                        student=case.student, assignee=teacher, summary=case.summary,
+                        trigger=note, diagnosis=case.diagnosis, evidence=case.evidence)
+    _save(actor, case, "escalation.followup_requested", {
+        "outcome": "followup_pending",
+        "decision": {"action": "request_followup", "note": note, "followup_id": str(child.pk)},
+    }, {"summary": f"Follow-up requested from {teacher.name}", "by": str(by.pk)})
+    return child
+
+
+@transaction.atomic
+def record_followup_response(actor, child, *, decision, by):
+    parent = EscalationCase.objects.select_for_update().filter(pk=child.subject_id, subject_type="business").first()
+    if parent is None:
+        raise DomainError("followup_not_found", "The original exception could not be found.")
+    resolve_case(actor, child, decision=decision, by=by)
+    _save(actor, parent, "escalation.followup_received", {
+        "outcome": "followup_received",
+        "evidence": [*parent.evidence, {"ref": str(child.pk), "summary": f"Teacher follow-up ({by.name}): {decision['note']}"}],
+        "decision": {"action": "followup_received", "note": decision["note"]},
+    }, {"summary": "Teacher follow-up received; Founder resolution still required."})
+    if parent.assignee:
+        notify(actor, recipient=parent.assignee, kind="followup_received", ref=str(parent.pk))
+
+
+@writes(RecoveryAttempt, "recovery.attempt_created")
+def create_recovery_attempt(actor, **fields):
+    return RecoveryAttempt.objects.create(**fields)

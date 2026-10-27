@@ -103,15 +103,26 @@ def teacher_workspace(user: Any, student: Any = None) -> dict:
 
 
 def services() -> list[dict]:
-    if settings.LLM_PROVIDER == "fake":
-        llm = "offline_demo"
-    else:
-        llm = "configured" if settings.LLM_BASE_URL else "not_configured"
+    from datetime import timedelta
+    from django.db import connection
+    from django.utils import timezone
+    from domain.governance.models import ServiceRequest
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            database = "verified" if cursor.fetchone()[0] == 1 else "unavailable"
+    except Exception:
+        database = "unavailable"
+    monitor = ServiceRequest.objects.filter(type="system_monitoring", status="completed").order_by("-completed_at").first()
+    recent = bool(monitor and monitor.completed_at and monitor.completed_at > timezone.now() - timedelta(minutes=3))
+    llm = "offline_demo" if settings.LLM_PROVIDER == "fake" else ("configured_unverified" if settings.LLM_BASE_URL else "not_configured")
     return [
-        {"name": "Application service", "status": "healthy", "last_backup_at": None},
+        {"name": "Application service", "status": "responding", "last_backup_at": None},
         {"name": "LLM provider", "status": llm, "last_backup_at": None},
-        {"name": "Retrieval index", "status": "healthy" if retrieval.is_enabled() else "disabled", "last_backup_at": None},
-        {"name": "Learning records", "status": "healthy", "last_backup_at": None},
+        {"name": "Retrieval index", "status": "configured_unverified" if retrieval.is_enabled() else "disabled", "last_backup_at": None},
+        {"name": "Learning records", "status": database, "last_backup_at": None},
+        {"name": "Monitoring", "status": "recent_check" if recent else "no_recent_check", "last_backup_at": None},
     ]
 
 
@@ -142,6 +153,8 @@ def review_subject(case: EscalationCase) -> dict | None:
     subject_id = lookups.parse_uuid(case.subject_id)
     if subject_id is None:
         return None
+    if case.subject_type == EscalationCase.Subject.BUSINESS:
+        return gviews.business_case_view(case)
     if case.subject_type == EscalationCase.Subject.PLAN:
         plan = learning.plan(subject_id)
         return lviews.plan_view(plan, review_id=str(case.pk)) if plan else None

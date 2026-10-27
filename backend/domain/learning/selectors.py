@@ -96,9 +96,9 @@ def current_teacher(student: Any) -> Any | None:
 
 
 def students_with_plan_teacher(teacher: Any) -> set[Any]:
-    """Student ids whose active or pending plan names this teacher (assignment, UC06 2a)."""
+    """Student ids whose active, completed or pending plan names this teacher (assignment, UC06 2a)."""
     return set(
-        LearningPlan.objects.filter(teacher=teacher, status__in=("active", *PENDING_PLAN_STATUSES)).values_list("student_id", flat=True)
+        LearningPlan.objects.filter(teacher=teacher, status__in=("active", "completed", *PENDING_PLAN_STATUSES)).values_list("student_id", flat=True)
     )
 
 
@@ -353,6 +353,16 @@ def stage_lessons_attended(stage):
 def milestone_status(stage):
     if stage.status == "completed":
         return "completed"
+    session = stage.assessments.order_by("-created_at").first()
+    if session:
+        result = getattr(session, "proficiency", None)
+        if result and result.status == "confirmed":
+            return "confirmed"
+        if result and result.status == "changes_requested":
+            return "reassessment_required"
+        if session.status == "completed":
+            return "completed"
+        return "awaiting_approval" if result else session.status
     if stage.milestone_request_id:
         return stage.milestone_request.status
     return "ready" if stage_lessons_attended(stage) else "lessons_pending"

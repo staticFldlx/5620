@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Link } from "react-router"
+import { Link, useSearchParams } from "react-router"
 import {
   Activity,
   ArrowRight,
@@ -11,9 +11,10 @@ import {
   TriangleAlert,
 } from "lucide-react"
 import { api } from "@/api/client"
+import { displayText, type DisplayReference } from "@/lib/display-text"
 import { useApp } from "@/app-context"
 import { AIButton } from "@/components/ai-button"
-import type { Case, Proposal } from "@/api/types"
+import type { Agent, Case, Proposal } from "@/api/types"
 import {
   AIVisual,
   Empty,
@@ -25,6 +26,7 @@ import {
 } from "@/components/layout"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 const time = (value: string) =>
   new Date(value).toLocaleString("en-AU", {
     day: "numeric",
@@ -54,7 +56,75 @@ function readableLabel(value: string) {
     const words = value.split(".").at(-1)!.replaceAll("_", " ")
     return words.charAt(0).toUpperCase() + words.slice(1)
   }
-  return value || "No recent activity"
+  return displayText(value) || "No recent activity"
+}
+// Display labels only: original identifiers remain in API calls and audit records.
+function governanceLabel(value: string) {
+  const labels: Record<string, string> = {
+    corpus: "Learning materials update",
+    recovery: "Service recovery",
+    configuration: "Agent configuration",
+    permission: "Access permissions",
+    archive: "Record archiving",
+    prompt: "AI instructions update",
+    manual: "Manual change",
+    pending: "Awaiting decision",
+    pending_review: "Awaiting review",
+    awaiting_approval: "Awaiting approval",
+    recovery_pending_verification: "Recovery awaiting verification",
+    not_started: "Not started",
+    manual_review: "Approved · manual action still required",
+    followup_pending: "Waiting for teacher follow-up",
+    followup_received: "Teacher follow-up received",
+    configured_unverified: "Configured · not health-checked",
+    no_recent_check: "No recent monitoring check",
+    recent_check: "Recent monitoring check completed",
+    pending_implementation: "Not implemented",
+    succeeded: "Completed successfully",
+    "agent.healthy": "Agent resumed",
+    "agent.paused": "Agent paused",
+    "agent.correction_requested": "Agent correction requested",
+    "user.login": "User signed in",
+    "profile.created": "Learning profile created",
+    "profile.updated": "Learning profile updated",
+    "proficiency.recorded": "Assessment result recorded",
+    "proficiency.updated": "Assessment result updated",
+    "assessment_session.created": "Assessment started",
+    "assessment_session.updated": "Assessment progress updated",
+    "escalation.created": "Human review requested",
+    "escalation.resolved": "Human review completed",
+    "availability.replaced": "Teaching availability updated",
+    "proposal.verified": "Proposal execution verified",
+    "proposal.rollback_metadata_saved": "Rollback information saved",
+    "history.explain": "Learning question recorded",
+    "history.resources": "Learning resources recommended",
+    "history.practice": "Practice exercise created",
+    "history.practice_answer": "Practice feedback recorded",
+    "history.progress_decision": "Learning progress decision recorded",
+    "history.plan_draft": "Plan draft recorded",
+    "history.material_completed": "Learning material completed",
+    "teaching_support.corpus_gap": "Missing learning materials reported",
+  }
+  if (labels[value]) return labels[value]
+  // Preserve narrative text; expand new machine labels without dropping the subject.
+  if (/^[a-z_]+(?:\.[a-z_]+)*$/.test(value)) {
+    const words = value.replaceAll(".", " ").replaceAll("_", " ")
+    return words.charAt(0).toUpperCase() + words.slice(1)
+  }
+  return displayText(value)
+}
+function Details({
+  value,
+  references = [],
+}: {
+  value: string
+  references?: DisplayReference[]
+}) {
+  return (
+    <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+      {displayText(value, references)}
+    </p>
+  )
 }
 function useOperations() {
   return useApp().workspace?.operations
@@ -63,6 +133,7 @@ export function FounderOverview() {
   const ops = useOperations()
   const { run, busy } = useApp()
   const [controlNote, setControlNote] = useState("")
+  const [controlAgent, setControlAgent] = useState<Agent | null>(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
   const logs = ops?.logs || []
   const visibleLogs = showAllLogs ? logs : logs.slice(0, 10)
@@ -105,20 +176,29 @@ export function FounderOverview() {
             Pause or resume an individual agent. Existing pages and saved
             content remain available.
           </p>
-          <label className="field-label">
-            Agent decision reason
-            <Textarea
-              aria-describedby="agent-control-help"
-              value={controlNote}
-              onChange={(event) => setControlNote(event.target.value)}
-              placeholder="Explain why the agent should be paused or resumed"
-            />
-          </label>
-          <p id="agent-control-help">
-            Enter a reason to enable the buttons, then choose an agent below.
-            The reason is recorded with that action; it is not a command to all
-            agents.
-          </p>
+          <p id="agent-control-help">Choose an agent. Review the action and enter a reason in the confirmation window.</p>
+          <Dialog open={!!controlAgent} onOpenChange={(open) => { if (!open && !busy) { setControlAgent(null); setControlNote("") } }}>
+            <DialogContent className="agent-control-dialog" showCloseButton={!busy}>
+              <DialogHeader>
+                <DialogTitle>{controlAgent?.status === "paused" ? "Resume" : "Pause"} {controlAgent?.name}</DialogTitle>
+                <DialogDescription>{controlAgent?.status === "paused"
+                  ? "New tasks can use this agent again. Enter the reason for resuming it."
+                  : "New tasks that require this agent will be blocked. Consider the impact and enter your reason before pausing."}</DialogDescription>
+              </DialogHeader>
+              <label className="field-label">Reason
+                <Textarea autoFocus value={controlNote} disabled={busy} onChange={(event) => setControlNote(event.target.value)} placeholder="Explain your decision" />
+              </label>
+              <DialogFooter>
+                <Button className="action secondary" disabled={busy} onClick={() => { setControlAgent(null); setControlNote("") }}>Cancel</Button>
+                <Button className="action primary" disabled={busy || !controlNote.trim()} onClick={async () => {
+                  if (!controlAgent) return
+                  const action = controlAgent.status === "paused" ? "resume" : "pause"
+                  const result = await run(() => api.decideAgent(controlAgent.id, action, controlNote.trim()), `Agent ${action === "resume" ? "resumed" : "paused"}.`)
+                  if (result) { setControlAgent(null); setControlNote("") }
+                }}>{busy ? "Saving…" : "Confirm"}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <div className="agent-grid">
             {ops?.agents.map((agent) => (
               <div className="agent-card" key={agent.id}>
@@ -134,20 +214,9 @@ export function FounderOverview() {
                   aria-describedby="agent-control-help"
                   disabled={
                     busy ||
-                    !controlNote.trim() ||
                     agent.status === "not_implemented"
                   }
-                  onClick={() =>
-                    run(
-                      () =>
-                        api.decideAgent(
-                          agent.id,
-                          agent.status === "paused" ? "resume" : "pause",
-                          controlNote
-                        ),
-                      `Agent ${agent.status === "paused" ? "resumed" : "paused"}.`
-                    )
-                  }
+                  onClick={() => { setControlAgent(agent); setControlNote("") }}
                 >
                   {agent.status === "paused" ? (
                     <Play size={15} />
@@ -168,8 +237,8 @@ export function FounderOverview() {
             .map((item) => (
               <Row
                 key={item.id}
-                title={item.subject}
-                detail={item.trigger}
+                title={displayText(item.subject)}
+                detail={displayText(item.trigger)}
                 right={
                   <Link
                     className="text-link"
@@ -290,10 +359,10 @@ export function FounderCases() {
                 setNote("")
               }}
             >
-              <strong>{item.subject}</strong>
-              <small>{item.trigger}</small>
+              <strong>{displayText(item.subject)}</strong>
+              <small>{displayText(item.trigger)}</small>
               <Pill tone={item.status === "resolved" ? "good" : "warn"}>
-                {item.status}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -302,16 +371,19 @@ export function FounderCases() {
           {detail ? (
             <>
               <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
-                {detail.id} · {detail.status}
+                {governanceLabel(detail.status)}
               </Pill>
-              <h3>{detail.subject}</h3>
-              <p>{detail.diagnosis}</p>
+              <h3>{displayText(detail.subject)}</h3>
+              <Details value={detail.diagnosis} />
               <div className="visual-panel short">
                 <AIVisual variant="path" />
               </div>
               <h3>Evidence</h3>
-              {detail.evidence.map((item) => (
-                <Row key={item.ref} title={item.ref} detail={item.summary} />
+              {detail.evidence.map((item, index) => (
+                <section key={`${item.ref}-${index}`}>
+                  <h4>Evidence {index + 1}</h4>
+                  <Details value={item.summary} />
+                </section>
               ))}
               {detail.status !== "decided" && detail.status !== "resolved" && (
                 <>
@@ -343,7 +415,7 @@ export function FounderCases() {
                     </Button>
                     <Button
                       className="action secondary"
-                      disabled={busy || !note.trim()}
+                      disabled={busy || !note.trim() || detail.status === "followup_pending"}
                       onClick={() => decide("request_followup")}
                     >
                       Request follow-up
@@ -390,10 +462,10 @@ export function FounderIncidents() {
               key={item.id}
               onClick={() => setSelected(item.id)}
             >
-              <strong>{item.subject}</strong>
-              <small>{item.trigger}</small>
+              <strong>{displayText(item.subject)}</strong>
+              <small>{displayText(item.trigger)}</small>
               <Pill tone={item.status === "resolved" ? "good" : "warn"}>
-                {item.status.replace("_", " ")}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -403,16 +475,19 @@ export function FounderIncidents() {
             {detail ? (
               <>
                 <Pill tone={detail.status === "resolved" ? "good" : "warn"}>
-                  {detail.id} · {detail.status.replace("_", " ")}
+                  {governanceLabel(detail.status)}
                 </Pill>
-                <h3>{detail.subject}</h3>
-                <p>{detail.diagnosis}</p>
+                <h3>{displayText(detail.subject)}</h3>
+                <Details value={detail.diagnosis} />
                 <div className="visual-panel short">
                   <AIVisual variant="scan" />
                 </div>
                 <h3>Evidence</h3>
-                {detail.evidence.map((item) => (
-                  <Row key={item.ref} title={item.ref} detail={item.summary} />
+                {detail.evidence.map((item, index) => (
+                  <section key={`${item.ref}-${index}`}>
+                    <h4>Evidence {index + 1}</h4>
+                    <Details value={item.summary} />
+                  </section>
                 ))}
               </>
             ) : (
@@ -427,12 +502,13 @@ export function FounderIncidents() {
               <span>04 · Verify</span>
             </div>
             <p>
-              {detail?.verification ||
-                "Any controlled recovery must be approved and verified before closure."}
+              {detail?.verification
+                ? displayText(detail.verification)
+                : "Any controlled recovery must be approved and verified before closure."}
             </p>
             {detail?.proposal_id && (
-              <Link className="action primary" to="/f4">
-                Review proposal {detail.proposal_id} <ArrowRight size={15} />
+              <Link className="action primary" to={`/f4?proposal=${encodeURIComponent(detail.proposal_id!)}`}>
+                Review recovery proposal <ArrowRight size={15} />
               </Link>
             )}
             <label className="field-label">
@@ -469,15 +545,19 @@ export function FounderApprovals() {
   const ops = useOperations()
   const { run, busy } = useApp()
   const proposals = ops?.proposals || []
-  const [selected, setSelected] = useState(proposals[0]?.id || "")
-  const [detail, setDetail] = useState<Proposal | null>(null)
+  const [params, setParams] = useSearchParams()
+  const selected = params.get("proposal") || proposals[0]?.id || ""
+  const setSelected = (id: string) => setParams({ proposal: id })
+  const [loadedDetail, setDetail] = useState<Proposal | null>(null)
+  const detail = loadedDetail?.id === selected ? loadedDetail : null
   const [note, setNote] = useState("")
   useEffect(() => {
+    let active = true
     if (selected)
-      api
-        .getProposal(selected)
-        .then(setDetail)
-        .catch(() => setDetail(null))
+      api.getProposal(selected)
+        .then((value) => { if (active) setDetail(value) })
+        .catch(() => { if (active) setDetail(null) })
+    return () => { active = false }
   }, [selected, proposals.length])
   async function decide(action: "approve" | "reject") {
     const result = await run(
@@ -506,12 +586,10 @@ export function FounderApprovals() {
                 setNote("")
               }}
             >
-              <strong>{item.title}</strong>
-              <small>
-                {item.type} · {item.id}
-              </small>
+              <strong>{displayText(item.title)}</strong>
+              <small>{governanceLabel(item.type)}</small>
               <Pill tone={item.status === "pending" ? "warn" : "good"}>
-                {item.status}
+                {governanceLabel(item.status)}
               </Pill>
             </button>
           ))}
@@ -521,26 +599,60 @@ export function FounderApprovals() {
             {detail ? (
               <>
                 <Pill tone={detail.status === "pending" ? "warn" : "good"}>
-                  {detail.status}
+                  {governanceLabel(detail.status)}
                 </Pill>
-                <h3>{detail.title}</h3>
+                <h3>{displayText(detail.title)}</h3>
                 <div className="compare">
                   <div>
                     <small>Before</small>
-                    <p>{detail.before}</p>
+                    <Details value={detail.before} />
                   </div>
                   <div>
                     <small>After</small>
-                    <p>{detail.after}</p>
+                    <Details value={detail.after} />
                   </div>
                 </div>
-                <Row title="Evidence" detail={detail.evidence.join(" ")} />
-                <Row title="Validation" detail={detail.validation} />
-                <Row title="Rollback" detail={detail.rollback} />
+                <section>
+                  <h4>Evidence</h4>
+                  {detail.evidence.length ? (
+                    detail.evidence.map((evidence, index) => (
+                      <Details
+                        key={index}
+                        value={evidence}
+                        references={[
+                          ...(ops?.cases.map((item) => ({
+                            id: item.id,
+                            label: item.subject,
+                          })) || []),
+                          {
+                            id: evidence,
+                            label: `Supporting record ${index + 1}`,
+                          },
+                        ]}
+                      />
+                    ))
+                  ) : (
+                    <p>No supporting evidence provided.</p>
+                  )}
+                </section>
+                <section>
+                  <h4>Validation</h4>
+                  <Details value={detail.validation} />
+                </section>
+                <section>
+                  <h4>Rollback</h4>
+                  <Details value={detail.rollback} />
+                </section>
                 <p>
-                  Execution: {detail.execution.status}. Approval does not itself
-                  verify a recovery.
+                  Execution: {governanceLabel(detail.execution.status)}.
+                  Approval does not itself verify a recovery.
                 </p>
+                {detail.execution.status === "manual_review" && (
+                  <div className="result-banner" role="status">
+                    <strong>Approved for manual action — not executed</strong>
+                    <p>This proposal has no automatic executor. An operator must make and verify the change. Any related incident remains open.</p>
+                  </div>
+                )}
                 {detail.status === "pending" && (
                   <>
                     <label className="field-label">
@@ -579,8 +691,30 @@ export function FounderApprovals() {
             {ops?.audit.map((entry) => (
               <Row
                 key={entry.id}
-                title={`${entry.action} · ${entry.subject_id}`}
-                detail={`${time(entry.time)} · ${entry.actor_name} · ${entry.result}`}
+                title={governanceLabel(entry.action)}
+                detail={displayText(
+                  [
+                    proposals.find((item) => item.id === entry.subject_id)
+                      ?.title ||
+                      ops.cases.find((item) => item.id === entry.subject_id)
+                        ?.subject,
+                    time(entry.time),
+                    entry.actor_name,
+                    entry.result,
+                  ]
+                    .filter(Boolean)
+                    .join(" · "),
+                  [
+                    ...proposals.map((item) => ({
+                      id: item.id,
+                      label: item.title,
+                    })),
+                    ...ops.cases.map((item) => ({
+                      id: item.id,
+                      label: item.subject,
+                    })),
+                  ]
+                )}
               />
             ))}
           </Panel>

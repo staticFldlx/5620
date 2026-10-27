@@ -52,10 +52,33 @@ def _waiting_request(user, body: RequestIn) -> ServiceRequest | None:
     return waiting
 
 
+def _goal_follow_up(user, body: RequestIn) -> ServiceRequest | None:
+    """A goal answer must never be mistaken for a new goal request.
+
+    Retrying a reply after the first response completed is idempotent. A stale
+    question gives a useful error instead of `goal_text: Field required`.
+    """
+    if body.type != "collect_goal" or "answer" not in body.input:
+        return None
+    pk = lookups.parse_uuid(body.context_id)
+    previous = governance.service_request(pk) if pk else None
+    if previous is None or previous.type != body.type:
+        raise DomainError("follow_up_expired", "This question is no longer available. Organise your goal again.", status=409)
+    lookups.require_owner(previous.actor_id == user.pk, "Only the person who made the request can answer it.")
+    if previous.status == ServiceRequest.Status.AWAITING_INPUT:
+        return dispatcher.reply(previous, input=body.input)
+    if previous.status in (ServiceRequest.Status.QUEUED, ServiceRequest.Status.RUNNING, ServiceRequest.Status.COMPLETED):
+        return previous
+    raise DomainError("follow_up_expired", "This question is no longer available. Organise your goal again.", status=409)
+
+
 @router.post("/requests", response=EnvelopeRecord)
 def create_request(request, body: RequestIn):
     user = request.auth
     role = require_role(user, Role.STUDENT, Role.TEACHER)
+    goal_follow_up = _goal_follow_up(user, body)
+    if goal_follow_up is not None:
+        return respond(goal_follow_up)
     waiting = _waiting_request(user, body)
     if waiting is not None:
         return respond(dispatcher.reply(waiting, input=body.input))

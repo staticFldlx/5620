@@ -140,7 +140,7 @@ def case(pk: Any) -> EscalationCase | None:
     return EscalationCase.objects.select_related("assignee", "student", "resolved_by", "task").filter(pk=pk).first()
 
 
-def cases_assigned_to(user: Any, *, subjects: tuple[str, ...] = LEARNING_SUBJECTS, limit: int = 50) -> QuerySet[EscalationCase]:
+def cases_assigned_to(user: Any, *, subjects: tuple[str, ...] = (*LEARNING_SUBJECTS, "business"), limit: int = 50) -> QuerySet[EscalationCase]:
     return EscalationCase.objects.filter(assignee=user, subject_type__in=subjects).order_by("-created_at")[:limit]
 
 
@@ -168,7 +168,7 @@ def cases_for_subjects(subject_type: str, subject_ids: list[str]) -> dict[str, E
 
 
 def business_cases(limit: int = 50) -> QuerySet[EscalationCase]:
-    return EscalationCase.objects.filter(subject_type=EscalationCase.Subject.BUSINESS).order_by("-created_at")[:limit]
+    return EscalationCase.objects.filter(subject_type=EscalationCase.Subject.BUSINESS, assignee__groups__name="founder").distinct().order_by("-created_at")[:limit]
 
 
 def open_approval_case_for(subject_type: str, subject_id: Any) -> EscalationCase | None:

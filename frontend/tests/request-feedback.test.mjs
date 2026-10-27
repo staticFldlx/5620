@@ -36,3 +36,12 @@ test("Queued, human approval, escalation and next-item states are not treated al
   assert.equal(requestFeedback({ follow_up: envelope("completed") }), null)
   assert.equal(requestFeedback({ review: {} }), null)
 })
+
+test("waiting messages do not expose request identifiers or alter the envelope", () => {
+  const request = envelope("queued", {
+    id: "845a92fa-ff05-5629-9854-d5253f447b7f",
+  })
+  const original = JSON.stringify(request)
+  assert.doesNotMatch(requestFeedback(request).message, /845a92fa/)
+  assert.equal(JSON.stringify(request), original)
+})

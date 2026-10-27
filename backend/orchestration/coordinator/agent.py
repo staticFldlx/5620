@@ -82,9 +82,29 @@ class CoordinatorAgent(AIAgent):
         self.runtime.note("prompt", id=prompts.PROMPT_ID)
         reading = self.runtime.structured(prompts.SYSTEM, [prompts.user_message(intake)], prompts.GoalReading, max_tokens=prompts.MAX_TOKENS)
 
+        # A model can decide that the goal is complete without supplying a usable
+        # lesson window. Scheduling cannot proceed from that state, so enforce the
+        # missing detail independently of the model's "enough" flag.
+        student_words = [goal, *(a["answer"] for a in answers)]
+        stated_times = prompts.parse_windows(student_words)
+        # Only accept model-normalised windows when the student actually named a
+        # weekday and a clock range. A model must not invent lesson availability.
+        model_times = (prompts.parse_windows(reading.availability)
+                       if reading is not None and prompts.mentions_lesson_window(student_words) else [])
+        existing_times = profile_view(profile)["availability"] if returning else []
+        availability = model_times or stated_times or existing_times
+        if not availability:
+            if left > 0:
+                question = (reading.follow_up_question.strip()
+                            if reading is not None and not reading.enough and reading.follow_up_question.strip() and left > 1
+                            else fake.TIMES_QUESTION)
+                self.runtime.note("follow_up_asked", question=question, follow_ups_left=left - 1)
+                return AgentResult(AgentStatus.NEEDS_INPUT, {"result": {"question": question}, "phase": "follow_up_question", "answers": answers})
+            return _failed("availability_required", "Give at least one weekly lesson day and time, for example Tue 18:00-20:00.")
+
         if reading is None:  # the model is unavailable: keep the student going with their own words
             self.runtime.note("goal_reading_fallback", llm=self._llm_failure_reason())
-            draft = {"summary": goal[:SUMMARY_CHARS], "focus_skills": selected, "target_level": "", "learning_needs": "", "availability": []}
+            draft = {"summary": goal[:SUMMARY_CHARS], "focus_skills": selected, "target_level": "", "learning_needs": "", "availability": availability}
             return _summary(draft, answers)
 
         question = reading.follow_up_question.strip()
@@ -100,7 +120,7 @@ class CoordinatorAgent(AIAgent):
             "focus_skills": skills,
             "target_level": level if level in LEVELS else "",
             "learning_needs": reading.learning_needs.strip()[:500],
-            "availability": prompts.parse_windows(reading.availability),
+            "availability": availability,
         }
         self.runtime.note("goal_structured", summary=draft["summary"], focus_skills=skills, availability=draft["availability"], questions_left=left, forced=not reading.enough)
         return _summary(draft, answers)
@@ -130,6 +150,8 @@ class CoordinatorAgent(AIAgent):
         draft = (governance.latest_task_result(student, "coordinator.collect_goal") or {}).get("draft") or {}
         if draft.get("summary") != summary:
             draft = {}
+        if not (draft.get("availability") or (profile and profile_view(profile)["availability"])):
+            return _failed("availability_required", "Organise your goal and give at least one weekly lesson day and time, for example Tue 18:00-20:00.")
         preferences: dict[str, Any] = {"weekly_hours": int(hours) if hours.is_integer() else hours}
         if draft.get("availability"):
             preferences["availability"] = draft["availability"]

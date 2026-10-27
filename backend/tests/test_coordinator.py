@@ -91,17 +91,33 @@ def test_follow_ups_stop_after_two_questions():
     api, _ = new_student()
     first = collect(api, "help")
     second = answer(api, first, "dunno")
-    final = answer(api, second, "not sure")
-    assert final["status"] == "completed" and final["result"]["summary"]  # no third question
-    profile = confirm(api, final["result"]["summary"]).json()["result"]["profile"]
-    assert profile["availability"] == []  # nothing was stated
+    response = api.post("/requests", {"type": "collect_goal", "context_id": second["id"], "input": {"answer": "not sure"}})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "availability_required"  # never silently skip times
 
 
 def test_llm_outage_keeps_the_students_own_words(monkeypatch):
     monkeypatch.setattr(registry, "build_runtime", lambda cls, task: make_runtime([]))  # every LLM call fails
     api, _ = new_student()
     envelope = collect(api, "I need English")
+    assert envelope["result"]["question"] == fake.TIMES_QUESTION
+    envelope = answer(api, envelope, "Tuesday 18:00-20:00")
     assert envelope["status"] == "completed" and envelope["result"]["summary"] == "I need English"
+
+
+def test_model_cannot_skip_missing_availability(monkeypatch):
+    from orchestration.coordinator import prompts
+
+    reading = prompts.GoalReading(enough=True, summary="Academic English for school", availability=["Tue 18:00-20:00"])
+    monkeypatch.setattr(registry, "build_runtime", lambda cls, task: make_runtime([reading.model_dump()]))
+    api, _ = new_student()
+    first = collect(api, "I need Academic English for my school exams next year")
+    assert first["result"]["question"] == fake.TIMES_QUESTION
+    final = answer(api, first, "Tuesday 18:00-20:00")
+    assert final["status"] == "completed"
+    assert confirm(api, final["result"]["summary"]).json()["result"]["profile"]["availability"] == [
+        {"day": "Tue", "start": "18:00", "end": "20:00"}
+    ]
 
 
 # --- confirm_goal (UC01 steps 4-6) ---------------------------------------------------------------
@@ -156,3 +172,39 @@ def test_onboarding_reaches_an_active_plan(emily):
     lessons = list(learning.lessons_for_student(student))
     sydney = ZoneInfo("Australia/Sydney")  # the stated times are in the profile's default timezone
     assert lessons and all(lesson.starts_at.astimezone(sydney).strftime("%a %H:%M") in ("Tue 18:00", "Thu 18:00", "Tue 19:00", "Thu 19:00") for lesson in lessons)
+
+
+def test_ielts_assessment_review_creates_separate_plan_review_even_without_matching_student_time(emily):
+    api, student_id = new_student("ielts-review@example.com")
+    goal = "I want to pass the IELTS exam at B2 level. I can take lessons Monday 18:00-20:00."
+    intake = collect(api, goal)
+    assert intake["status"] == "completed", intake
+    saved = confirm(api, intake["result"]["summary"], goal_text=goal, self_level="A1", target_level="B2")
+    assert saved.status_code == 200, saved.content
+
+    session = api.post("/assessments", {"student_id": student_id, "kind": "initial"}).json()
+    while session["status"] == "in_progress":
+        response = api.post(f"/assessments/{session['id']}/answers",
+            {"item_id": session["current_item_id"], "answer": "no idea"})
+        assert response.status_code == 200, response.content
+        session = response.json()
+    assert session["status"] == "awaiting_review"
+
+    assessment_case = EscalationCase.objects.get(student_id=student_id, subject_type="assessment", status="open")
+    decided = emily.post(f"/reviews/{assessment_case.pk}/decision",
+        {"action": "confirm_result", "note": "Confirmed from class work.", "corrected_level": "A1"})
+    assert decided.status_code == 200, decided.content
+    assert decided.json()["follow_up"]["status"] == "pending_review", decided.json()
+
+    student = learning.student(student_id)
+    plan = learning.pending_plan(student)
+    assert plan is not None and str(plan.teacher_id) == key("teacher-emily")
+    plan_case = EscalationCase.objects.get(student_id=student_id, subject_type="plan", status="open")
+    assert plan_case.assignee_id == plan.teacher_id
+    assert any(review["id"] == str(plan_case.pk) for review in emily.get("/workspace").json()["reviews"])
+    assert api.get("/workspace").json()["students"][student_id]["pending_plan"]["id"] == str(plan.pk)
+
+    approved = emily.post(f"/reviews/{plan_case.pk}/decision", {"action": "approve", "note": "Approved."})
+    assert approved.status_code == 200, approved.content
+    assert learning.active_plan(student).pk == plan.pk
+    assert learning.lessons_for_student(student).exists()

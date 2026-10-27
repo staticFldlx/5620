@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router"
+import { upcomingLessons } from "@/lib/lessons"
 import {
   ArrowRight,
   BookOpen,
@@ -185,7 +186,8 @@ export function StudentOverview() {
   const { student, lessons, materials, user } = useStudent()
   const [quickOpen, setQuickOpen] = useState(false)
   const [quickView, setQuickView] = useState<"details" | "materials">("details")
-  const next = lessons.find((x) => x.status === "confirmed") || lessons.at(-1)
+  const upcoming = upcomingLessons(lessons)
+  const next = upcoming[0]
   const plan = student?.plan
   const confirmed = latestConfirmed(student)
   const { workspace } = useApp()
@@ -243,7 +245,7 @@ export function StudentOverview() {
         />
         <Metric
           label="Upcoming lessons"
-          value={lessons.filter((x) => x.status === "confirmed").length}
+          value={upcoming.length}
           note="Confirmed sessions"
           icon={CalendarDays}
         />
@@ -289,13 +291,13 @@ export function StudentOverview() {
               <Pill tone="good">{next?.status || "No lesson"}</Pill>
               <h2>
                 {next?.title ||
-                  (plan ? "Your learning journey starts here" : nextStep.title)}
+                  (plan ? (lessons.length ? "No upcoming lesson" : "Your learning journey starts here") : nextStep.title)}
               </h2>
               <p>
                 {next
                   ? `${next.teacher.name} · ${date(next.starts_at)}`
                   : plan
-                    ? "Your first lesson will appear when a time is confirmed."
+                    ? (lessons.length ? "Check your timetable for lesson history and future bookings." : "Your first lesson will appear when a time is confirmed.")
                     : nextStep.description}
               </p>
               <div className="hero-actions">
@@ -578,6 +580,7 @@ export function StudentGoal() {
     null
   )
   const [answer, setAnswer] = useState("")
+  const replying = useRef(false)
   function show(envelope: RequestEnvelope) {
     if (
       envelope.status === "awaiting_confirmation" &&
@@ -598,13 +601,18 @@ export function StudentGoal() {
     if (result) show(result)
   }
   async function reply() {
-    if (!question || !answer.trim()) return
-    const result = await runAI("goal", () =>
-      api.request("collect_goal", { answer }, undefined, question.id)
-    )
-    if (result) {
-      setAnswer("")
-      show(result)
+    if (!question || !answer.trim() || replying.current) return
+    replying.current = true
+    try {
+      const result = await runAI("goal", () =>
+        api.request("collect_goal", { answer }, undefined, question.id)
+      )
+      if (result) {
+        setAnswer("")
+        show(result)
+      }
+    } finally {
+      replying.current = false
     }
   }
   async function confirm() {
@@ -1124,6 +1132,8 @@ export function StudentPlan() {
                                 running: "Preparing assessment",
                                 awaiting_input:
                                   "Ready to continue in Assessments",
+                                confirmed: "Result confirmed",
+                                reassessment_required: "New assessment required",
                                 escalated: "Awaiting teacher review",
                                 awaiting_approval: "Awaiting teacher review",
                                 completed: "Result recorded",
@@ -1140,9 +1150,24 @@ export function StudentPlan() {
               </div>
             </>
           ) : (
-            <Empty>
-              Your plan will appear after assessment and teacher approval.
-            </Empty>
+            <>
+              <Empty>
+                Your plan will appear after assessment and teacher approval.
+              </Empty>
+              {latestConfirmed(student) && !choice && (
+                <AIButton
+                  pendingLabel="Preparing plan…"
+                  className="action primary"
+                  disabled={busy}
+                  onClick={() =>
+                    runAI("plan", () => api.request("request_plan"),
+                      "Plan request updated. Check the next step or teacher review.")
+                  }
+                >
+                  Prepare learning plan <ArrowRight size={15} />
+                </AIButton>
+              )}
+            </>
           )}
         </Panel>
         <div className="stack">
@@ -1157,6 +1182,8 @@ export function StudentPlan() {
                     : "Your approved plan is active."
                   : choice
                     ? "Choose a lesson time below to finish your plan."
+                  : latestConfirmed(student)
+                    ? "Your assessment is confirmed. Prepare a plan for teacher review."
                     : "Complete your goal and assessment. Your teacher will review the first plan."}
             </p>
             {plan?.progress_message && (
@@ -1170,6 +1197,11 @@ export function StudentPlan() {
                 Weekly hours<strong>{displayPlan?.weekly_hours || 0}</strong>
               </span>
             </div>
+            {plan?.status === "active" && (
+              <p>
+                If a lesson time does not work for you, open <Link to="/s5">Lessons</Link> to request a different time.
+              </p>
+            )}
           </Panel>
           {choice && (
             <Panel title="Choose a lesson time">
@@ -1355,11 +1387,11 @@ export function StudentPlan() {
                 All stages and their milestone assessments are complete. Your
                 results remain in your learning record.
               </p>
-              <Link className="action secondary" to="/s7">
+              <Link className="action secondary" to="/s8">
                 View learning record
               </Link>
             </Panel>
-          ) : choice && !student?.pending_plan ? null : (
+          ) : choice && !student?.pending_plan ? null : latestConfirmed(student) ? null : (
             <Panel title="Next step">
               <p>
                 {student?.pending_plan
@@ -1690,7 +1722,9 @@ export function StudentAssistant() {
                   <small>
                     {item.status === "escalated"
                       ? "Teacher review"
-                      : "Teaching Assistant · via Coordinator"}
+                      : item.escalation?.resolved_by
+                        ? `Teacher reply · ${item.escalation.resolved_by}`
+                        : "Teaching Assistant · via Coordinator"}
                   </small>
                   <p>{item.answer}</p>
                   {item.source_refs.map((source) => (

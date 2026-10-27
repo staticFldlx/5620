@@ -38,6 +38,7 @@ from .correction_proposal import (
 from .recovery_executor import (
     execute_approved_recovery,
     resume_approved_agent,
+    verify_pending_recoveries,
 )
 
 from .configuration_workflow import (
@@ -152,6 +153,7 @@ class TechOperationsAgent(AIAgent):
     def detect_system_anomalies(self) -> AgentResult:
         """Detect anomalies, create incidents and diagnose the new ones (UC10 steps 1-4)."""
         try:
+            verify_pending_recoveries()
             stats = governance.agent_stats()
 
             detected = detect_all_anomalies(stats)
@@ -578,7 +580,7 @@ class TechOperationsAgent(AIAgent):
                 result = resume_approved_agent(str(proposal.pk))
 
             elif proposal.change_type == "recovery" and action == "retry_request":
-                result = execute_approved_recovery(str(proposal.pk))
+                result = execute_approved_recovery(str(proposal.pk), self.runtime)
 
             # Founder review, corpus, prompt and manual changes have no executor:
             # approval is recorded and a person makes the change.

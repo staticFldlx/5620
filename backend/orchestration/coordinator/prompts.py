@@ -74,6 +74,13 @@ def user_message(intake: dict) -> Message:
 # Whole day names only, so "months" or "Sunny" are not read as days.
 DAY_PATTERN = r"(mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:rs|rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)"
 _WINDOW = re.compile(rf"\b{DAY_PATTERN}\b\.?\s+(\d{{1,2}}):?(\d{{2}})?\s*(?:-|–|to)\s*(\d{{1,2}}):?(\d{{2}})?", re.I)
+_DAY_MENTION = re.compile(rf"\b{DAY_PATTERN}\b", re.I)
+_TIME_RANGE = re.compile(r"\b\d{1,2}(?::\d{2})?\s*(?:-|–|to)\s*\d{1,2}(?::\d{2})?\b", re.I)
+
+
+def mentions_lesson_window(items: list[Any]) -> bool:
+    """Require a weekday and an explicit clock range in the student's own words."""
+    return any(_DAY_MENTION.search(str(item)) and _TIME_RANGE.search(str(item)) for item in items or [])
 
 
 def parse_windows(items: list[Any]) -> list[dict]:

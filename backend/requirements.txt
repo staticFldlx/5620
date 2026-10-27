@@ -1,3 +1,5 @@
 Django==5.2.18
 django-ninja==1.7.1
 gunicorn==23.0.0; sys_platform != "win32"
+psycopg[binary]==3.3.6
+whitenoise==6.12.0

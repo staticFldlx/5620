@@ -363,6 +363,11 @@ class PlanReviewResult(Record):
     review_id: str | None = None
 
 
+class PlanEscalationResult(Record):
+    """A planning exception has no draft yet; it still needs a readable reason."""
+    message: str
+
+
 class ReplaceTeacherResult(Record):
     plan: PlanRecord | None = None
     review_id: str | None = None
@@ -414,6 +419,7 @@ class DecisionFollowUpResult(Record):
 RESULT_CONTRACTS: dict[str, type[Record]] = {
     "collect_goal": CollectGoalResult,
     "confirm_goal": ConfirmGoalResult,
+    "request_plan": PlanReviewResult,
     "explain": InteractionResult,
     "resources": InteractionResult,
     "practice": PracticeResult,
@@ -511,6 +517,7 @@ class ReplyInput(Record):
 INPUT_CONTRACTS: dict[str, type[Record]] = {
     "collect_goal": CollectGoalInput,
     "confirm_goal": ConfirmGoalInput,
+    "request_plan": AnyInput,
     "explain": QuestionInput,
     "resources": QuestionInput,
     "practice": AnyInput,
@@ -546,8 +553,10 @@ def validate_input(request_type: str, data: Any) -> dict:
     return _validate(INPUT_CONTRACTS.get(request_type, AnyInput), data or {})
 
 
-def validate_result(request_type: str, data: Any, *, awaiting_input: bool = False) -> dict:
+def validate_result(request_type: str, data: Any, *, awaiting_input: bool = False, escalated: bool = False) -> dict:
     model = RESULT_CONTRACTS.get(request_type, DecisionFollowUpResult)
+    if escalated and model is PlanReviewResult and isinstance(data, dict) and data.get("message"):
+        return _validate(PlanEscalationResult, data)
     if awaiting_input and isinstance(data, dict) and "question" in data and model is not CollectGoalResult:
         try:
             return _validate(model, data)

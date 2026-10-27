@@ -1,6 +1,6 @@
 """Planning business rules and integration with the real dispatcher/review manager."""
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from django.contrib.auth.models import Group
@@ -75,14 +75,23 @@ def test_generation_is_personalised_grounded_and_pending(learner):
     assert learning.history(learner).get().payload["proposed_slots"]
 
 
-@pytest.mark.parametrize("change", ["unknown", "prerequisite", "hours", "weeks", "empty"])
+def test_ielts_goal_matches_academic_english_teacher_and_reaches_review(learner):
+    services.update_profile("coordinator", learner.learning_profile,
+        learning_goal="I want to pass the IELTS exam at B2 level",
+        structured_objective={"summary": "Exam preparation for IELTS", "focus_skills": ["Reading", "Writing"],
+                              "target_level": "B2"})
+
+    result = agent().execute_task(task(learner))
+
+    assert result.status == AgentStatus.AWAITING_APPROVAL
+    assert str(learning.pending_plan(learner).teacher_id) == key("teacher-emily")
+
+
+@pytest.mark.parametrize("change", ["unknown", "hours", "weeks", "empty"])
 def test_invalid_business_constraints_never_persist(learner, change):
     output = draft()
     if change == "unknown":
         output["stages"][0]["course_codes"] = ["MADE-UP"]
-    elif change == "prerequisite":
-        output["stages"] = [output["stages"][1]]
-        output["stages"][0]["start_week"] = 1
     elif change == "hours":
         output["weekly_hours"] = 5
     elif change == "weeks":
@@ -110,11 +119,20 @@ def test_curriculum_error_is_fed_back_once_and_the_corrected_draft_is_used(learn
     assert "CAT-02" in consultant.runtime.adapter.calls[-1]["messages"][-1].content
 
 
-def test_curriculum_still_invalid_after_feedback_is_rejected(learner):
+def test_repeated_prerequisite_error_is_repaired_before_teacher_review(learner):
     consultant = PlanningAgent(make_runtime([out_of_order(), out_of_order()]))
-    assert consultant.execute_task(task(learner)).reason == "invalid_curriculum"
-    assert not learning.pending_plan(learner)
+    assert consultant.execute_task(task(learner)).status == AgentStatus.AWAITING_APPROVAL
+    assert [s.courses.get().code for s in learning.plan_stages(learning.pending_plan(learner))] == ["CAT-01", "CAT-02"]
     assert [s["attempt"] for s in consultant.runtime.trace if s.get("decision") == "invalid_curriculum"] == [1, 2]
+    assert any(s.get("decision") == "curriculum_repaired" for s in consultant.runtime.trace)
+
+
+def test_missing_prerequisite_is_added_before_teacher_review(learner):
+    output = draft()
+    output["stages"] = [{**output["stages"][1], "start_week": 1, "end_week": 2}]
+    consultant = PlanningAgent(make_runtime([output, output]))
+    assert consultant.execute_task(task(learner)).status == AgentStatus.AWAITING_APPROVAL
+    assert [s.courses.get().code for s in learning.plan_stages(learning.pending_plan(learner))] == ["CAT-01", "CAT-02"]
 
 
 def test_invalid_llm_json_is_retried_and_rejected(learner):
@@ -143,18 +161,50 @@ def test_no_teacher_routes_to_founder(learner, settings):
     assert result.payload["resume"] == "planning.generate_plan"
 
 
+def test_missing_teacher_reports_the_real_blocker_instead_of_a_missing_plan_contract(learner, settings):
+    from orchestration.task_queue import contracts
+
+    settings.INTAKE_TEACHER_EMAIL = "missing@example.com"
+    User.objects.filter(groups__name="teacher").update(is_active=False)
+    request = dispatcher.submit("request_plan", actor=learner, actor_role="student", student=learner, input={})
+
+    assert request.status == "escalated" and request.error is None
+    assert "teacher" in request.result["message"].lower()
+    with pytest.raises(contracts.ContractError):
+        contracts.validate_result("request_plan", request.result)
+
+
 def test_no_catalogue_escalates_after_widening(learner):
     Course.objects.all().delete()
     result = agent().execute_task(task(learner))
     assert result.reason == "catalogue_insufficient"
 
 
-def test_no_overlap_returns_conflict_checked_alternatives(learner):
+def test_no_overlap_uses_teacher_time_and_still_sends_plan_for_review(learner):
     services.update_profile("coordinator", learner.learning_profile, preferences={"availability": []})
     result = agent().execute_task(task(learner))
-    assert result.status == AgentStatus.NEEDS_INPUT
-    assert result.payload["result"]["slots"]
-    assert not learning.pending_plan(learner)
+    assert result.status == AgentStatus.AWAITING_APPROVAL
+    assert str(learning.pending_plan(learner).teacher_id) == key("teacher-emily")
+    assert "teacher's available slots" in learning.pending_plan(learner).rationale
+    assert learning.history(learner).get().payload["proposed_lessons"]
+
+
+def test_full_teacher_slots_move_initial_lessons_beyond_four_weeks(learner):
+    teacher = User.objects.get(pk=key("teacher-emily"))
+    services.replace_availability(teacher, teacher, windows=[{"day": "Mon", "start": "09:00", "end": "10:00"}],
+        tz="Australia/Sydney")
+    first_four = agent()._slots(teacher, learner, learner.learning_profile)[:4]
+    assert len(first_four) == 4
+    for slot in first_four:
+        services.book_lesson("planning", teacher=teacher, student=learner, title="Existing class",
+            starts_at=datetime.fromisoformat(slot["starts_at"]),
+            ends_at=datetime.fromisoformat(slot["ends_at"]), status="confirmed")
+
+    result = agent().execute_task(task(learner))
+
+    assert result.status == AgentStatus.AWAITING_APPROVAL
+    proposed = learning.history(learner, kinds=("plan_draft",)).get().payload["proposed_lessons"]
+    assert proposed[0]["starts_at"] > first_four[-1]["starts_at"]
 
 
 def test_retry_reuses_draft(learner):
@@ -220,6 +270,16 @@ def test_real_dispatcher_review_activation_and_duplicate_decision(learner, real_
     repeated = task(learner, "activate_plan", case_id=str(case.pk), subject_id=str(plan.pk),
         decision={**case.decision, "decided_by": str(case.resolved_by_id)})
     assert agent().execute_task(repeated).status == AgentStatus.OK
+    assert learning.lessons_for_student(learner).count() == 2
+
+
+def test_student_can_retry_plan_after_confirmed_assessment(learner, real_runtime):
+    request = dispatcher.submit("request_plan", actor=learner, actor_role="student", student=learner, input={})
+    assert request.status == "awaiting_approval", request.error
+    assert learning.pending_plan(learner) is not None
+    case = EscalationCase.objects.get(task__request=request)
+    approve(case)
+    assert learning.active_plan(learner) is not None
     assert learning.lessons_for_student(learner).count() == 2
 
 
@@ -319,14 +379,9 @@ def test_failed_activation_rolls_back_plan_and_booking(learner, real_runtime, mo
     assert not learning.lessons_for_student(learner).exists()
 
 
-def test_alternative_confirmation_continues_generation_and_review(learner, real_runtime):
+def test_unmatched_student_time_does_not_pause_generation_and_review(learner, real_runtime):
     services.update_profile("coordinator", learner.learning_profile, preferences={"availability": []})
     request = review_request(learner)
-    assert request.status == "awaiting_input"
-    waiting = request.tasks.get()
-    selected = waiting.result["result"]["slots"][0]
-    dispatcher.reply(request, input={"slot_id": selected["id"]})
-    request.refresh_from_db()
     assert request.status == "awaiting_approval", request.error
     approve(EscalationCase.objects.get(task__request=request))
     assert learning.active_plan(learner)
@@ -513,20 +568,12 @@ def test_replacement_failure_rolls_back_active_version_and_new_bookings(learner,
     assert not learning.lessons_for_student(learner).exists()
 
 
-def test_founder_widen_match_changes_subject_criteria(learner, real_runtime, alex):
+def test_unrelated_goal_still_uses_the_configured_intake_teacher(learner, real_runtime):
     services.update_profile("coordinator", learner.learning_profile, learning_goal="Medical communication",
         structured_objective={"summary": "Medical communication", "focus_skills": ["Medical"]})
     request = review_request(learner)
-    case = EscalationCase.objects.get(task__request=request)
-    assert case.subject_type == "business"
-    detail = alex.get(f"/cases/{case.pk}")
-    assert "widen_match" in detail.json()["available_actions"]
-    response = alex.post(f"/cases/{case.pk}/decision", {"action": "widen_match", "note": "Allow the intake teacher to review this broader goal."})
-    assert response.status_code == 200
-    assert response.json()["follow_up"]["status"] == "pending_review"
-    request.refresh_from_db()
     assert request.status == "awaiting_approval", request.error
-    assert "broader goal" in learning.pending_plan(learner).rationale
+    assert str(learning.pending_plan(learner).teacher_id) == key("teacher-emily")
 
 
 def test_founder_request_teacher_without_updated_data_does_not_loop(learner, real_runtime, settings):
@@ -669,28 +716,19 @@ def test_initial_assessment_pipeline_preserves_session_contract_when_paused(lear
     contracts.validate_result("start_assessment", request.result)
 
 
-def test_student_picks_plan_time_when_availability_does_not_overlap(learner, real_runtime, client):
+def test_teacher_approves_plan_at_teacher_time_when_student_time_does_not_overlap(learner, real_runtime):
     from access_control.gateway import presenters
-    from access_control.identity.permissions import assigned_student_ids
-    from tests.conftest import Api
     teacher = User.objects.get(pk=key("teacher-emily"))
     services.update_profile("coordinator", learner.learning_profile, preferences={"availability": []})
     request = assessment_to_planning(learner, learning.latest_confirmed_proficiency(learner))
-    assert request.status == "awaiting_input", request.error
-    choice = presenters.plan_choice_record(learner)
-    assert choice["request_id"] == str(request.pk) and choice["request_type"] == "start_assessment" and choice["slots"]
-    assert learner.pk in assigned_student_ids(teacher)  # the draft already names Emily
-    learner.set_password("longenough")
-    learner.save()
-    student = Api(client).login("planning@example.com", "longenough")
-    assert student.get("/workspace").json()["plan_choice"]["request_id"] == str(request.pk)
-    response = student.post("/requests", {"type": "start_assessment", "context_id": choice["request_id"],
-        "input": {"slot": choice["slots"][0]["id"]}})
-    assert response.status_code == 200, response.content
+    assert request.status == "awaiting_approval", request.error
     plan = learning.pending_plan(learner)
     assert plan is not None and plan.teacher_id == teacher.pk
     assert presenters.plan_choice_record(learner) is None
-    assert EscalationCase.objects.filter(task__request=request, assignee=teacher, status="open").exists()
+    case = EscalationCase.objects.get(task__request=request, assignee=teacher, status="open")
+    approve(case)
+    assert learning.active_plan(learner).pk == plan.pk
+    assert learning.lessons_for_student(learner).count() == 2
 
 
 def test_automatic_replan_uses_shared_dispatcher_and_keeps_assessment_contract(learner, real_runtime):
@@ -750,12 +788,13 @@ def test_upstream_recommendation_and_evidence_reach_model_and_review(learner, mo
     assert result.payload["evidence"][-1] == {"ref": "progress-1", "summary": "Two weak paragraphs"}
 
 
-def test_changed_preferences_do_not_silently_reuse_unconfirmed_draft_slots(learner, real_runtime):
+def test_changed_preferences_still_allow_teacher_available_slot(learner, real_runtime):
     case, resumed = resolved_activation(learner)
     services.update_profile("coordinator", learner.learning_profile, preferences={"availability": []})
     result = agent().execute_task(resumed)
-    assert result.status == AgentStatus.NEEDS_INPUT
-    assert learning.active_plan(learner) is None
+    assert result.status == AgentStatus.OK
+    assert learning.active_plan(learner) is not None
+    assert learning.lessons_for_student(learner).count() == 2
 
 
 @pytest.mark.parametrize("status", ["pending_review", "changes_requested"])

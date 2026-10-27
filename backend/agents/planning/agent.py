@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -31,6 +30,8 @@ using confirmed weaknesses. Produce measurable stages, topics and milestones wit
 the weekly study budget. Select only supplied course codes; put every prerequisite
 in an earlier, non-overlapping stage. Explain the evidence and any requested changes.
 Never invent teachers, courses, assessments, or approvals. Return the requested JSON."""
+
+SCHEDULE_LOOKAHEAD_DAYS = 90
 
 
 class PlanningAgent(AIAgent):
@@ -131,22 +132,15 @@ class PlanningAgent(AIAgent):
             selected[course.code] = course
         return selected
 
-    def _teachers(self, student, skills, *, replacement=False, widen=False):
+    def _teachers(self, student, *, replacement=False):
         current = learning.current_teacher(student)
         intake = governance.teacher_by_email(settings.INTAKE_TEACHER_EMAIL)
-        profile = learning.profile_for(student)
-        goal = " ".join([profile.learning_goal, profile.structured_objective.get("summary", ""), *map(str, skills)]) if profile else ""
-        goal_words = set(re.findall(r"[a-z]+", goal.lower())) - {"english", "learning", "learn"}
         candidates, seen = [], set()
         for teacher in (current, intake, *learning.available_teachers()):
             if (teacher is None or teacher.pk in seen or not teacher.is_active
                 or role_of(teacher) != "teacher" or (replacement and teacher == current)):
                 continue
             seen.add(teacher.pk)
-            areas = getattr(getattr(teacher, "teacher_profile", None), "subject_areas", [])
-            area_words = set(re.findall(r"[a-z]+", " ".join(areas).lower())) - {"english", "learning", "learn"}
-            if not widen and not area_words.intersection(goal_words):
-                continue
             candidates.append(teacher)
         return candidates
 
@@ -181,13 +175,11 @@ class PlanningAgent(AIAgent):
         courses = self._catalogue(profile, assessment)
         if not courses:
             return self._escalate("catalogue_insufficient", "No courses are available after widening the catalogue query.", task)
-        skills = profile.structured_objective.get("focus_skills", []) or assessment.weak_areas
         widen = bool(data.decision and data.decision.action == "widen_match")
         if previous:
             widen = widen or any(e.payload.get("plan_id") == str(previous.pk) and e.payload.get("matching_widened")
                 for e in learning.history(student, kinds=("plan_draft",)))
-        teachers = self._teachers(student, skills, replacement=replacement,
-            widen=widen)
+        teachers = self._teachers(student, replacement=replacement)
         if not teachers:
             if data.decision:
                 return failed("teacher_catalogue_update_required", "The Founder decision cannot supply a teacher. Update the shared teacher data/read interface before retrying.")
@@ -236,24 +228,37 @@ class PlanningAgent(AIAgent):
                 stages = validate_curriculum(corrected, courses, budget)
             except ValueError as again:
                 self.runtime.note("invalid_curriculum", error=str(again), attempt=2, stage_courses=stage_courses(corrected))
-                return failed("invalid_curriculum", str(again))
-            self.runtime.note("curriculum_corrected", stage_courses=stage_courses(corrected))
+                repaired = repair_prerequisite_order(corrected, courses) if str(again).startswith("Prerequisites") else None
+                if repaired is None:
+                    return failed("invalid_curriculum", str(again))
+                try:
+                    stages = validate_curriculum(repaired, courses, budget)
+                except ValueError:
+                    return failed("invalid_curriculum", str(again))
+                self.runtime.note("curriculum_repaired", stage_courses=stage_courses(repaired))
+                corrected = repaired
+            else:
+                self.runtime.note("curriculum_corrected", stage_courses=stage_courses(corrected))
             draft = corrected
-        schedule, selected = None, None
+        schedule, selected, teacher_time_fallback = None, None, False
         for candidate in teachers:
             if data.reply and (data.previous or {}).get("teacher_id") != str(candidate.pk):
                 continue
             chosen = self._confirmed_alternative(data, candidate, student, profile)
             candidate_slots = [chosen] if chosen else self._slots(candidate, student, profile)
             candidate_schedule = self._choose_schedule(candidate, student, stages, candidate_slots, confirmed=chosen)
+            if candidate_schedule is None and not data.reply:
+                # The teacher receives the draft even when the learner's preferred
+                # window does not overlap. The learner can move a booked lesson later.
+                candidate_slots = self._slots(candidate, student, profile, respect_student=False)
+                candidate_schedule = self._choose_schedule(candidate, student, stages, candidate_slots,
+                    respect_student=False)
+                teacher_time_fallback = candidate_schedule is not None
             if candidate_schedule is not None:
                 teacher, slots, schedule, selected = candidate, candidate_slots, candidate_schedule, chosen
                 break
         if schedule is None:
-            for candidate in teachers:
-                if self._slots(candidate, student, profile, respect_student=False):
-                    return self._alternatives(candidate, student, profile, stages=stages)
-            return failed("no_available_slots", "No conflict-free teacher slots are available within the search horizon.")
+            return failed("no_available_slots", "No conflict-free teacher slots are available within the next 90 days.")
         evidence = [{"ref": str(assessment.pk), "summary": assessment.gap_to_goal or "Confirmed assessment"}]
         evidence.extend({"ref": str(e["ref"]), "summary": str(e["summary"])}
             for e in (data.upstream_data or {}).get("evidence", [])
@@ -263,6 +268,8 @@ class PlanningAgent(AIAgent):
             rationale += "\nRevision reason: " + str(data.input["reason"])
         if data.decision:
             rationale += "\nTeacher feedback: " + data.decision.note
+        if teacher_time_fallback:
+            rationale += "\nLesson times use the teacher's available slots because the learner's preferred times do not overlap. The learner can request a different time after approval."
         with transaction.atomic():
             versions = learning.student_plan_version_snapshot(str(student.pk))
             plan = services.create_plan("planning", student=student, teacher=teacher, based_on=assessment,
@@ -365,12 +372,13 @@ class PlanningAgent(AIAgent):
                         break
                     except DomainError:
                         continue
-        if not slots:
-            return self._alternatives(plan.teacher, student, profile, stages=list(learning.plan_stages(plan)))
         stages = list(learning.plan_stages(plan))
         schedule = self._choose_schedule(plan.teacher, student, stages, slots, confirmed=selected)
         if schedule is None:
-            return self._alternatives(plan.teacher, student, profile, stages=stages)
+            slots = self._slots(plan.teacher, student, profile, respect_student=False)
+            schedule = self._choose_schedule(plan.teacher, student, stages, slots, respect_student=False)
+        if schedule is None:
+            return failed("no_available_slots", "No conflict-free teacher slots are available within the next 90 days.")
         with transaction.atomic():
             services.activate_plan("planning", plan, approved_by=case.resolved_by)
             for stage, slot in zip(stages, schedule):
@@ -414,7 +422,7 @@ class PlanningAgent(AIAgent):
         duration = exclude.ends_at - exclude.starts_at if exclude else timedelta(hours=min(1, float(prefs["weekly_hours"])))
         if duration <= timedelta(0):
             raise DomainError("invalid_study_budget", "Study hours must be positive.")
-        for offset in range(1, 29):
+        for offset in range(1, SCHEDULE_LOOKAHEAD_DAYS + 1):
             day = now.astimezone(teacher_tz).date() + timedelta(days=offset)
             for window in windows:
                 if day.strftime("%a") != window.day:
@@ -434,7 +442,7 @@ class PlanningAgent(AIAgent):
                     start += timedelta(minutes=30)
         return result
 
-    def _choose_schedule(self, teacher, student, stages, candidates, *, confirmed=None):
+    def _choose_schedule(self, teacher, student, stages, candidates, *, confirmed=None, respect_student=True):
         """Allocate a teacher session at each stage start; the remaining budget is self-study."""
         for candidate in candidates:
             schedule = []
@@ -449,7 +457,7 @@ class PlanningAgent(AIAgent):
                     week = stage["start_week"] if isinstance(stage, dict) else stage.start_week
                     start = first + timedelta(weeks=week - 1)
                     end = start + duration
-                    if not fits_student(start, end, prefs, student_tz):
+                    if respect_student and not fits_student(start, end, prefs, student_tz):
                         local = start.astimezone(student_tz)
                         if not confirmed or (local.weekday(), local.time()) != (pattern.weekday(), pattern.time()):
                             raise DomainError("outside_student_availability", "A stage lesson falls outside student preferences.")
@@ -519,7 +527,7 @@ class PlanningAgent(AIAgent):
             slots = self._slots(lesson.teacher, student, profile, exclude=lesson, respect_student=False)
             slots = [s for s in slots if datetime.fromisoformat(s["starts_at"]) != lesson.starts_at]
         if not slots:
-            message += " No alternative times are available in the next 28 days. Contact your teacher to adjust availability."
+            message += " No alternative times are available in the next 90 days. Contact your teacher to adjust availability."
         return AgentResult(AgentStatus.NEEDS_INPUT, {"phase": "student_choose_slot", "result": {
             "lesson_id": str(lesson.pk), "proposed_slot": slots[0]["starts_at"] if accepted else None,
             "slots": slots, "requested_available": accepted, "message": message,
@@ -588,6 +596,67 @@ def validate_curriculum(draft, courses, budget):
 def stage_courses(draft):
     """Course codes per stage, in order, e.g. [["CAT-01"], ["CAT-02", "CAT-03"]] (for the trace)."""
     return [list(stage.course_codes) for stage in draft.stages]
+
+
+def repair_prerequisite_order(draft, courses):
+    """Conservatively order real catalogue courses after two failed model drafts.
+
+    Teacher approval remains required. Unknown, repeated, cyclic, or otherwise
+    malformed course selections are left for the normal validation failure.
+    """
+    originals = {}
+    last_week = 0
+    for stage in draft.stages:
+        if stage.start_week != last_week + 1 or not stage.course_codes:
+            return None
+        last_week = stage.end_week
+        for code in stage.course_codes:
+            if code not in courses or code in originals:
+                return None
+            originals[code] = stage
+
+    ordered, visited, visiting = [], set(), set()
+
+    def visit(code):
+        if code in visited:
+            return
+        if code in visiting or code not in courses:
+            raise ValueError("Missing or cyclic catalogue prerequisite")
+        visiting.add(code)
+        for prerequisite in courses[code].prerequisites.all():
+            visit(prerequisite.code)
+        visiting.remove(code)
+        visited.add(code)
+        ordered.append(code)
+
+    try:
+        for code in originals:
+            visit(code)
+    except ValueError:
+        return None
+
+    repaired, week = [], 1
+    for code in ordered:
+        course = courses[code]
+        original = originals.get(code)
+        single = original is not None and len(original.course_codes) == 1
+        duration = original.end_week - original.start_week + 1 if original else 1
+        if week + duration - 1 > 104:
+            return None
+        repaired.append({
+            "title": original.title if single else course.title,
+            "topics": original.topics if single else [course.skill or course.title],
+            "milestone": original.milestone if single else f"Demonstrate {course.title} in a teacher-reviewed exercise.",
+            "start_week": week,
+            "end_week": week + duration - 1,
+            "course_codes": [code],
+        })
+        week += duration
+    return PlanDraft.model_validate({
+        "weekly_hours": draft.weekly_hours,
+        "rationale": draft.rationale + "\nCourse stages were ordered by the verified catalogue prerequisites.",
+        "stages": repaired,
+    })
 
 
 def fits_student(start, end, prefs, tz):

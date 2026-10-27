@@ -135,6 +135,16 @@ def test_reply_to_waiting_request_via_context_id(stubs, ivy):
     assert (first["status"], first["phase"]) == ("awaiting_confirmation", "follow_up_question")
     second = ivy.post("/requests", {"type": "collect_goal", "context_id": first["id"], "input": {"answer": "IELTS"}}).json()
     assert second["id"] == first["id"] and second["result"]["summary"] == "IELTS"
+    repeated = ivy.post("/requests", {"type": "collect_goal", "context_id": first["id"], "input": {"answer": "IELTS"}})
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == first["id"]
+    assert repeated.json()["result"]["summary"] == "IELTS"
+
+
+def test_expired_goal_answer_explains_how_to_retry(ivy):
+    response = ivy.post("/requests", {"type": "collect_goal", "context_id": "missing", "input": {"answer": "Tue 18:00-20:00"}})
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "follow_up_expired"
 
 
 # --- assessments ------------------------------------------------------------------------------------

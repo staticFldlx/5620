@@ -97,7 +97,7 @@ export type Interaction = {
   confidence: number
   source_refs: { material_id: string; title: string; locator: string }[]
   sent_at: string
-  escalation: unknown
+  escalation: { status: string; resolved_by?: string | null; trigger?: string; review_id?: string } | null
 }
 export type Review = {
   id: string
@@ -202,6 +202,7 @@ export type Workspace = {
 export type RequestType =
   | "collect_goal"
   | "confirm_goal"
+  | "request_plan"
   | "revise_plan"
   | "reschedule"
   | "confirm_slot"

@@ -3,7 +3,7 @@
 
 from django.db import transaction
 
-from domain.governance.models import IncidentRecord
+from domain.governance.models import AgentTask, IncidentRecord
 from domain.governance.services import create_incident
 
 from .anomaly_detector import Anomaly
@@ -24,13 +24,15 @@ def find_existing_incident(
         f"{anomaly.agent_id}: {anomaly.anomaly_type}"
     )
 
-    return (
+    latest = (
         IncidentRecord.objects
         .filter(subject=subject)
-        .exclude(status__in=CLOSED_STATUSES)
         .order_by("-created_at")
         .first()
     )
+    if latest and latest.status in CLOSED_STATUSES and AgentTask.objects.filter(target_agent=anomaly.agent_id, status="failed", created_at__gt=latest.updated_at).exists():
+        return None
+    return latest
 
 
 def create_incident_from_anomaly(
@@ -49,6 +51,7 @@ def create_incident_from_anomaly(
         if existing is not None:
             return existing, False
 
+        failed = AgentTask.objects.filter(target_agent=anomaly.agent_id, status="failed").order_by("-created_at").first()
         incident = create_incident(
             actor=ACTOR,
             subject=(
@@ -63,7 +66,8 @@ def create_incident_from_anomaly(
                     "ref": f"agent:{anomaly.agent_id}",
                     "summary": str(anomaly.evidence),
                 }
-            ],
+            ] + ([{"ref": f"task:{failed.pk}", "summary": "Failed task eligible for policy validation."},
+                  {"ref": f"agent:{anomaly.agent_id}:failure", "summary": failed.reason}] if failed else []),
             risk=IncidentRecord.Risk.UNKNOWN,
         )
 
