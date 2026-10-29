@@ -1,154 +1,154 @@
-# LingoPath 前端
+# LingoPath Frontend
 
-LingoPath 的网页端：**18 个产品页面**（登录 / 注册 2 页、学生 7 页、教师 5 页、Founder 4 页），另有演示入口 `/`。默认连接 [后端](../backend/README.md) 的 `/api/v1`；没有后端时也可以切到浏览器内的离线演示模式。
+The LingoPath web client: **18 product pages** (2 sign-in / registration pages, 7 student pages, 5 teacher pages, 4 Founder pages), plus a demo entry page at `/`. By default it connects to the [backend](../backend/README.md) at `/api/v1`; without a backend you can switch to an in-browser offline demo mode.
 
-## 运行
+## Running
 
-需要 Node.js 22.12+ 和 npm。在 `frontend` 目录：
+Requires Node.js 22.12+ and npm. In the `frontend` directory:
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开终端显示的地址，通常是 http://localhost:5173/ 。
+Open the address shown in the terminal, usually http://localhost:5173/ .
 
-### 连接后端
+### Connecting to the backend
 
-先按后端 README 启动后端（默认 `http://127.0.0.1:8000`），再在 `frontend/.env.local` 写入（这个文件不提交）：
+Start the backend first as described in the backend README (default `http://127.0.0.1:8000`), then put the following in `frontend/.env.local` (this file is not committed):
 
 ```dotenv
 VITE_USE_MOCK_API=false
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-修改 `.env.local` 后要重启 `npm run dev`。
+Restart `npm run dev` after changing `.env.local`.
 
-- **CORS**：后端默认只允许 `http://localhost:5173` 和 `http://127.0.0.1:5173`。Vite 换了端口时，在 `backend/.env` 的 `CORS_ALLOWED_ORIGINS` 里加上新地址。
-- **出错时**：后端的错误体带 `message`，页面右下角的提示框直接显示它；请求执行失败时 HTTP 状态码为 422。
+- **CORS**: by default the backend only allows `http://localhost:5173` and `http://127.0.0.1:5173`. If Vite picks a different port, add the new address to `CORS_ALLOWED_ORIGINS` in `backend/.env`.
+- **Errors**: backend error bodies include a `message`, which the toast in the bottom-right corner of the page shows as is; when a request fails during execution, the HTTP status code is 422.
 
-### 离线演示模式（不需要后端）
+### Offline demo mode (no backend needed)
 
-不创建 `.env.local`，或设置 `VITE_USE_MOCK_API=true` 时，MSW 在浏览器里模拟 `/api/v1`（`src/mocks/handlers.ts`，初始数据 `src/mocks/fixture.json`），修改保存在本机 `localStorage`。这种模式只用于演示页面流程，问答和练习都是固定的示例回复，不经过任何 agent。
+When there is no `.env.local`, or `VITE_USE_MOCK_API=true` is set, MSW mocks `/api/v1` in the browser (`src/mocks/handlers.ts`, initial data in `src/mocks/fixture.json`), and changes are saved in the browser's `localStorage`. This mode is only for demonstrating page flows: Q&A and practice return fixed sample replies and never go through an agent.
 
-### 构建与检查
+### Build and checks
 
 ```bash
-npm run build      # tsc -b 类型检查 + vite 构建
+npm run build      # tsc -b type check + vite build
 npm run lint
 npm run typecheck
 npm run preview
 ```
 
-GitHub Actions（`.github/workflows/ci.yml`）在每次 push 和 PR 时运行 `npm ci` 和 `npm run build`。
+GitHub Actions (`.github/workflows/ci.yml`) runs `npm ci` and `npm run build` on every push and PR.
 
-## 演示账号
+## Demo accounts
 
-密码都是 `demo1238`，登录页可以一键填入。
+Every account uses the password `demo1238`, and the login page can fill them in with one click.
 
-| 角色 | 邮箱 | 首页 |
+| Role | Email | Home page |
 | --- | --- | --- |
-| Student | `ivy.lin@example.com`（另有 `sophia.chen@example.com`） | `/s1` |
+| Student | `ivy.lin@example.com` (also `sophia.chen@example.com`) | `/s1` |
 | Teacher | `emily.walker@example.com` | `/t1` |
 | Founder | `alex.hu@example.com` | `/f1` |
 
-注册只能创建学生账号。
+Registration can only create student accounts.
 
-## 页面
+## Pages
 
-| 角色 | 路由和页面 |
+| Role | Routes and pages |
 | --- | --- |
-| Public | `/p01` 登录；`/p02` 注册 |
-| Student | `/s1` 首页；`/s2` 学习目标；`/s3` 测评；`/s4` 学习计划；`/s5` 课程与时间；`/s6` 学习助手与练习；`/s8` 学习历程 |
-| Teacher | `/t1` 首页；`/t2` 学生学习情况；`/t3` 课程与可授课时间；`/t4` 审核与升级问题；`/t5` 教学准备与教材 |
-| Founder | `/f1` 运行概览；`/f2` 业务异常；`/f3` 技术事故；`/f4` 审批与审计 |
+| Public | `/p01` Sign in; `/p02` Register |
+| Student | `/s1` Overview; `/s2` Learning goal; `/s3` Assessments; `/s4` My learning plan; `/s5` Lessons; `/s6` Learning assistant and practice; `/s8` Learning record |
+| Teacher | `/t1` Overview; `/t2` My students; `/t3` Lessons & availability; `/t4` Reviews & questions; `/t5` Teaching preparation and materials |
+| Founder | `/f1` Operations overview; `/f2` Service exceptions; `/f3` Technical incidents; `/f4` Approvals & audit |
 
-未登录访问角色页会转到登录页；用其他角色登录会转到该角色的首页。演示入口 `/` 不是产品功能页。
+Visiting a role page without signing in redirects to the sign-in page; signing in as a different role redirects to that role's home page. The demo entry page `/` is not a product page.
 
-几个与 agent 交互的地方：
+Where the pages interact with agents:
 
-- **`/s2` 学习目标**：点 “Organise my goal” 后，Coordinator 可能先追问（例如学习目的、每周可上课时间），右侧面板显示问题和 “Answer” 按钮，回答会发回同一个请求；得到摘要后点 “Confirm goal” 保存，还没有测评时会出现去 `/s3` 做入学测评的链接。
-- **`/s3` 测评**：每题提交后由 Assessment Agent 出下一题；结束后结果交给 Course Consultant 起草计划，计划等教师在 `/t4` 批准。
-- **`/s6` 学习助手**：提问、找资料、练习和反馈都由 Teaching Assistant 处理；需要老师决定的问题会显示 “Teacher review”。
-- **`/t4` 审核**：计划、低置信测评、升级问题的人工决定；**`/f4` 审批**：变更提案的批准、拒绝和审计记录。
+- **`/s2` Learning goal**: after you click "Organise my goal", the Coordinator may first ask a follow-up question (for example about the learning purpose or weekly availability for lessons). The right-hand panel shows the question and an "Answer" button, and the answer is sent back to the same request. Once a summary is ready, click "Confirm goal" to save it; if there is no assessment yet, a link to take the initial assessment on `/s3` appears.
+- **`/s3` Assessments**: after each item is submitted, the Assessment Agent generates the next one; at the end, the result goes to the Course Consultant, which drafts a plan that waits for teacher approval on `/t4`.
+- **`/s6` Learning assistant**: questions, resources, practice and feedback are all handled by the Teaching Assistant; questions that need a teacher's decision show "Teacher review".
+- **`/t4` Reviews**: human decisions on plans, low-confidence assessments and escalated questions; **`/f4` Approvals**: approving and rejecting change proposals, plus the audit records.
 
-## 技术栈与代码位置
+## Tech stack and code layout
 
 - React 19 + TypeScript 6 + Vite 8
-- React Router：页面路由与角色入口
-- Tailwind CSS 4 + shadcn/ui 组件：基础样式、按钮、输入框
-- Axios：统一的 HTTP 客户端，见 `src/api/client.ts`（自动把登录得到的 token 作为 Bearer 发送）
-- React Context + Hooks：会话、工作区、请求状态，见 `src/app-context.tsx`
-- MSW：离线演示模式，见 `src/mocks/`
-- Motion + CSS：AI 视觉动效、页面反馈与日夜主题
+- React Router: page routing and role entry points
+- Tailwind CSS 4 + shadcn/ui components: base styles, buttons, inputs
+- Axios: the shared HTTP client, see `src/api/client.ts` (automatically sends the token obtained at sign-in as a Bearer token)
+- React Context + Hooks: session, workspace and request state, see `src/app-context.tsx`
+- MSW: offline demo mode, see `src/mocks/`
+- Motion + CSS: AI visual effects, page feedback and the light/dark theme
 
-`src/pages/` 按 auth、student、teacher、founder 拆分，页面组件不包含 API 地址。接口类型在 `src/api/types.ts`。所有 agent 请求都通过 `api.request(type, input, studentId?, contextId?)`（`POST /requests`）发出，请求类型和接口列表见后端 README 第 6 节。
+`src/pages/` is split into auth, student, teacher and founder; page components contain no API addresses. API types live in `src/api/types.ts`. Every agent request is sent through `api.request(type, input, studentId?, contextId?)` (`POST /requests`); see section 6 of the backend README for the request types and the endpoint list.
 
-## 本地存储
+## Local storage
 
-| 键 | 用途 |
+| Key | Purpose |
 | --- | --- |
-| `lingopath-session` | 登录 token；清除后需要重新登录 |
-| `lingopath-mock-v1` | 离线演示模式的数据；清除后恢复初始演示数据 |
-| `lingopath-theme`、`lingopath-motion` | 日夜主题和动效开关；系统设置了“减少动态效果”时会关闭动画 |
+| `lingopath-session` | Sign-in token; clearing it means you have to sign in again |
+| `lingopath-mock-v1` | Data for the offline demo mode; clearing it restores the initial demo data |
+| `lingopath-theme`, `lingopath-motion` | Light/dark theme and motion toggle; animations are turned off when the system "reduce motion" setting is on |
 
-连接真实后端时，演示数据保存在后端数据库，用后端的 `python manage.py load_demo_data --reset` 重置。
+When connected to the real backend, the demo data lives in the backend database; reset it with the backend's `python manage.py load_demo_data --reset`.
 
-## 已知问题修复与回归测试
+## Known issue fixes and regression tests
 
-2026-10-23 已修复测评状态、定向测评恢复、Founder 后续执行提示/暂停恢复/放宽匹配、教师私有草稿和显示问题。详见 [修复内容与验证方法](docs/known-issues-fixes.md)。`npm test` 运行请求状态单元测试；`npm run test:e2e` 使用临时后端验证真实页面流程，`AGENT_TASK_EXECUTION=worker npm run test:e2e` 验证异步模式；`npm run test:e2e:mock` 检查离线演示兼容性。
+On 2026-10-23 the following were fixed: assessment status, recovery of directed assessments, Founder follow-up execution hints / pause and resume / relaxed matching, private teacher drafts, and display issues. See [Fixes and how to verify them](docs/known-issues-fixes.md). `npm test` runs the request-status unit tests; `npm run test:e2e` verifies the real page flows against a temporary backend, and `AGENT_TASK_EXECUTION=worker npm run test:e2e` verifies the asynchronous mode; `npm run test:e2e:mock` checks compatibility with the offline demo.
 
-## 新增：教师调整计划、纠正测评、阶段推进
+## New: teacher plan revisions, assessment corrections, stage progression
 
-以下操作使用真实后端（`VITE_USE_MOCK_API=false`）。先完成后端迁移，再刷新前端。
+The steps below use the real backend (`VITE_USE_MOCK_API=false`). Run the backend migrations first, then refresh the frontend.
 
-### 1. 老师主动修改学习计划（UC07）
+### 1. Teacher-initiated learning plan revision (UC07)
 
-1. 老师登录，点击 **My students**，选择目标学生。
-2. 在 **Request a plan revision** 的 **Requested plan changes** 填写修改要求与理由。
-3. 点击 **Submit plan revision**；当前版本继续生效，新版本显示等待审核，不能重复提交。
-4. 点击 **Open reviews**，选择该学生的待审 plan，核对新内容并填写审核备注。
-5. 点击 **Approve & activate**。学生刷新 **My learning plan**，应看到新版本；未批准前看到原版本和待审修改。
+1. Sign in as the teacher, click **My students** and select the student.
+2. Under **Request a plan revision**, enter the changes and the reason in **Requested plan changes**.
+3. Click **Submit plan revision**. The current version stays in effect, the new version shows as awaiting review, and it cannot be submitted twice.
+4. Click **Open reviews**, select the student's pending plan, check the new content and enter a review note.
+5. Click **Approve & activate**. When the student refreshes **My learning plan**, they should see the new version; before approval they see the original version together with the pending revision.
 
-### 2. 老师纠正待审核测评等级（UC02、UC05）
+### 2. Teacher correcting a pending assessment level (UC02, UC05)
 
-1. 老师点击 **Reviews & questions** → **assessment**，选择状态为 pending 的测评。
-2. 在 **Confirmed level (CEFR)** 选择 A1–C2；保留默认选项则不改 AI 等级。
-3. 在 **Decision note and supporting evidence** 写明依据。
-4. 点击 **Confirm corrected result**（保持原等级时是 **Confirm result**）。
-5. 学生在 **Assessments** 点击 **Refresh result** 或刷新页面，记录应显示 confirmed 及老师确认的等级；首页 Current level 同步更新。
+1. As the teacher, click **Reviews & questions** → **assessment** and select an assessment whose status is pending.
+2. Choose A1–C2 in **Confirmed level (CEFR)**; leaving the default option keeps the AI level.
+3. Write the justification in **Decision note and supporting evidence**.
+4. Click **Confirm corrected result** (or **Confirm result** when keeping the original level).
+5. The student clicks **Refresh result** in **Assessments** or refreshes the page. The record should show confirmed with the level the teacher confirmed, and Current level on the overview page updates to match.
 
-仅待审核记录能在此纠正；已决定的旧记录不会重新开放审核。定向测评入口仍在 **My students → AI progress support → Directed assessment**。
+Only pending records can be corrected here; records that have already been decided are not reopened for review. The directed assessment entry point is still **My students → AI progress support → Directed assessment**.
 
-### 3. 自动发布里程碑测评（UC05）
+### 3. Automatically published milestone assessments (UC05)
 
-1. 学生在 **My learning plan** 查看 `current` 阶段及 **Milestone target**。
-2. 老师进入 **Lessons & availability**，选择这个学生、这个阶段的课程。
-3. 上课时间已到后，选择 **Attendance → Attended**，填写 **Lesson observation**，点击 **Save lesson record**。
-4. 当前阶段所有未取消课程都按上述记录出席后，系统自动准备一份 milestone assessment。
-5. 学生刷新 **Assessments**，点击 **Continue milestone assessment**；无需老师再点 Request assessment。
-6. 重复保存同一节课反馈，不应出现重复测评。若 worker 模式，准备需要等待 worker 执行后刷新。
+1. As the student, check the `current` stage and its **Milestone target** in **My learning plan**.
+2. As the teacher, open **Lessons & availability** and select this student's lesson in this stage.
+3. Once the lesson time has passed, choose **Attendance → Attended**, fill in **Lesson observation** and click **Save lesson record**.
+4. Once every non-cancelled lesson in the current stage has been recorded as attended this way, the system automatically prepares a milestone assessment.
+5. The student refreshes **Assessments** and clicks **Continue milestone assessment**; the teacher does not need to click Request assessment.
+6. Saving the same lesson feedback again should not create a duplicate assessment. In worker mode, wait for the worker to run before refreshing.
 
-未来课程不能提前记出席；缺席不会算通过。已有历史课程不会因为升级代码而自动改写或发布测评；如当前阶段已经上完，可重新保存该阶段最后一节课的记录以触发检查。
+Future lessons cannot be marked as attended in advance, and an absence does not count as a pass. Existing past lessons are not rewritten, and no assessments are published for them, just because the code was upgraded; if the current stage has already been completed, save the record of the stage's last lesson again to trigger the check.
 
-### 4. 阶段推进和最终完成（UC05）
+### 4. Stage progression and final completion (UC05)
 
-1. 完成第 3 项发布的测评，逐题点 **Submit answer**。
-2. 若显示 **Pending teacher review**，先由老师按第 2 项确认等级；此时学生阶段应保持原样。
-3. 已确认等级达到 **Milestone target** 且不低于测评开始时等级，学生刷新 **My learning plan**：当前阶段变 completed、下一阶段变 current、版本号不变。
-4. 对下一阶段重复“完成课程 → 里程碑测评 → 确认结果”。
-5. 最后一个阶段通过后，页面显示 **Your learning plan is complete**，所有阶段 completed，首页 Learning stage 显示 Completed，原计划与结果仍可查看。
+1. Complete the assessment published in section 3, clicking **Submit answer** for each item.
+2. If **Pending teacher review** appears, the teacher first confirms the level as in section 2; the student's stage should stay unchanged at this point.
+3. When the confirmed level reaches the **Milestone target** and is not lower than the level at the start of the assessment, the student refreshes **My learning plan**: the current stage becomes completed, the next stage becomes current, and the version number stays the same.
+4. Repeat "finish the lessons → milestone assessment → confirm the result" for the next stage.
+5. After the last stage is passed, the page shows **Your learning plan is complete**, every stage is completed, Learning stage on the overview page shows Completed, and the original plan and results remain viewable.
 
-### 5. 正常进度保留计划，偏离时申请修改（UC05）
+### 5. Normal progress keeps the plan; deviation requests a revision (UC05)
 
-- **正常路径**：按第 4 项完成达标测评；确认计划版本不变，没有新 pending plan。
-- **偏离路径**：选另一个有 active 计划的测试学生，完成其阶段测评。若正式结果低于开始时等级或阶段目标，应保留原计划/阶段，同时生成一个待审核的新版本。
-- 示例：开始等级 B2、阶段目标 B2，正式确认 B2 则推进；正式确认 B1 则提议修改，等老师在 **Reviews & questions** 批准后才启用。仅在测试账号使用人为构造的等级；真实学生按证据确认。
-- 已有待审版本时不会再堆叠新版本；老师也可以主动发起第 1 项的修改。
+- **Normal path**: complete a passing assessment as in section 4, then confirm that the plan version is unchanged and there is no new pending plan.
+- **Deviation path**: pick another test student with an active plan and complete their stage assessment. If the official result is below the starting level or the stage target, the original plan/stage should be kept, and a new version awaiting review is created alongside it.
+- Example: with a starting level of B2 and a stage target of B2, an officially confirmed B2 advances the stage, while an officially confirmed B1 proposes a revision that only takes effect after the teacher approves it in **Reviews & questions**. Only use artificially constructed levels on test accounts; real students' levels should be confirmed from evidence.
+- When a pending version already exists, no further version is stacked on top of it; teachers can also start a revision themselves as in section 1.
 
-### 自动化复验
+### Automated re-verification
 
-在 frontend 目录执行：
+In the `frontend` directory, run:
 
 ```sh
 npm run typecheck
@@ -160,4 +160,4 @@ npx playwright test --config playwright.progress.config.ts
 AGENT_TASK_EXECUTION=worker npx playwright test --config playwright.progress.config.ts
 ```
 
-新增浏览器测试使用 8101/5274 端口、临时数据库、离线模型及仅存在于临时库的测试账号，退出后清理，不改变日常开发数据库。测试脚本内的 `progress@test.example` 等账号不是正常 demo 账号。
+The new browser tests use ports 8101/5274, a temporary database, an offline model and test accounts that exist only in the temporary database; everything is cleaned up on exit, and the everyday development database is not changed. Accounts such as `progress@test.example` in the test scripts are not regular demo accounts.

@@ -2,33 +2,33 @@
 
 ELEC5620 Model-Based Software Engineering · Wed 14-16 Group 3
 
-LingoPath 是一个由 LLM agent 驱动、由一位创始人运营的个性化英语教育服务。五个 AI 角色承担一所语言学校的咨询、测评、规划、助教和运维工作；人类教师负责上课和最终的学术判断，Founder 负责监督和审批。AI 没有把握的结果一律交给人决定。
+LingoPath is a personalised English education service driven by LLM agents and run by a single founder. Five AI roles handle the consulting, assessment, planning, teaching-assistant and operations work of a language school; human teachers deliver the lessons and make the final academic judgements, while the Founder supervises and approves. Any result the AI is not confident about is handed to a human to decide.
 
-## 五个 AI 角色
+## The five AI roles
 
-| Agent | 对应需求 | 主要能力 | 人工把关 |
+| Agent | Requirements | Main capabilities | Human oversight |
 |---|---|---|---|
-| AI Course Coordinator | AR01、AR11；UC01 | 把学生的学习目标整理成结构化目标，信息不够时追问，保存学习档案 | 学生确认后才保存 |
-| AI Assessment Agent | AR02、AR05、AR13；UC02、UC05 | 自适应测评：逐题调整难度、规则定级、可解释的置信度 | 低置信结果由教师确认或修正 |
-| AI Course Consultant | AR03、AR07；UC03、UC07 | 按档案和测评结果起草分阶段计划，匹配教师，在双方可用时间内排课 | 计划必须教师批准才生效；找不到教师时交给 Founder |
-| AI Teaching Assistant | AR04–AR08；UC04–UC08 | 答疑（引用教材）、找资料、练习与反馈、教师侧进度分析、备课摘要、教材草稿 | 敏感或没把握的问题转教师；教材草稿须教师批准 |
-| AI Technical Manager | AR09、AR10、AR12；UC09、UC10 | 监控 agent、诊断事故、把 Founder 的纠正请求整理成变更提案并执行 | 所有变更和恢复都要 Founder 批准 |
+| AI Course Coordinator | AR01, AR11; UC01 | Turns a student's learning goal into a structured goal, asks follow-up questions when information is missing, and saves the learner profile | Saved only after the student confirms |
+| AI Assessment Agent | AR02, AR05, AR13; UC02, UC05 | Adaptive assessment: adjusts difficulty item by item, rule-based levelling, explainable confidence | Low-confidence results are confirmed or corrected by a teacher |
+| AI Course Consultant | AR03, AR07; UC03, UC07 | Drafts a staged plan from the profile and assessment results, matches a teacher, and schedules lessons within both parties' availability | A plan takes effect only after teacher approval; handed to the Founder when no teacher is available |
+| AI Teaching Assistant | AR04–AR08; UC04–UC08 | Q&A (citing materials), finding resources, practice and feedback, teacher-side progress analysis, lesson briefings, material drafts | Sensitive or uncertain questions go to the teacher; material drafts require teacher approval |
+| AI Technical Manager | AR09, AR10, AR12; UC09, UC10 | Monitors agents, diagnoses incidents, and turns the Founder's correction requests into change proposals and executes them | All changes and recoveries require Founder approval |
 
-学生入学的闭环：Coordinator 建档 → Assessment Agent 测评 → Course Consultant 起草计划 → 教师批准 → 计划生效并排课 → Teaching Assistant 日常辅导 → 阶段测评后重新规划。
+The student intake loop: the Coordinator builds the profile → the Assessment Agent runs the assessment → the Course Consultant drafts a plan → the teacher approves → the plan takes effect and lessons are scheduled → the Teaching Assistant provides day-to-day support → re-planning after milestone assessments.
 
-## 仓库结构
+## Repository structure
 
-| 目录 | 内容 |
+| Directory | Contents |
 |---|---|
-| [`backend/`](backend/README.md) | Python + Django + django-ninja：API、五个 agent、任务编排、复核与审批、审计、权限、演示数据和测试 |
-| [`frontend/`](frontend/README.md) | React + TypeScript + Vite：学生、教师、Founder 三种角色的 18 个页面 |
-| `.github/workflows/ci.yml` | GitHub Actions：前端构建，后端迁移检查和全部测试（不调用真实 LLM） |
+| [`backend/`](backend/README.md) | Python + Django + django-ninja: API, the five agents, task orchestration, review and approval, audit, permissions, demo data and tests |
+| [`frontend/`](frontend/README.md) | React + TypeScript + Vite: 18 pages for three roles (student, teacher, Founder) |
+| `.github/workflows/ci.yml` | GitHub Actions: frontend build, backend migration check and the full test suite (no real LLM calls) |
 
-## 快速开始
+## Quick start
 
-需要 Python 3.11+ 和 Node.js 22.12+。以下命令以 Windows 为例；macOS / Linux 把 `.venv\Scripts\` 换成 `.venv/bin/`，`copy` 换成 `cp`。
+Requires Python 3.11+ and Node.js 22.12+. The commands below are for Windows; on macOS / Linux replace `.venv\Scripts\` with `.venv/bin/` and `copy` with `cp`.
 
-**1. 后端**（终端一）
+**1. Backend** (terminal 1)
 
 ```bash
 cd backend
@@ -38,38 +38,38 @@ copy .env.example .env
 .venv\Scripts\python run_demo.py
 ```
 
-默认 `LLM_PROVIDER=fake`，不需要 API key 就能走完全部流程。要接真实模型（Gemini 或课程代理），见后端 README 第 2 节。
+The default is `LLM_PROVIDER=fake`, so the whole flow works without an API key. To connect a real model (Gemini or the course proxy), see section 2 of the backend README.
 
-**2. 前端**（终端二）
+**2. Frontend** (terminal 2)
 
 ```bash
 cd frontend
 npm install
 ```
 
-新建 `frontend/.env.local`：
+Create `frontend/.env.local`:
 
 ```dotenv
 VITE_USE_MOCK_API=false
 VITE_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-然后运行 `npm run dev`，打开 http://localhost:5173/ 。
+Then run `npm run dev` and open http://localhost:5173/ .
 
-**3. 登录**：演示账号的密码都是 `demo1238`，登录页可以一键填入。
+**3. Sign in**: every demo account uses the password `demo1238`, and the login page can fill them in with one click.
 
-| 角色 | 邮箱 | 首页 |
+| Role | Email | Home page |
 |---|---|---|
-| 学生 | `ivy.lin@example.com`、`sophia.chen@example.com` | `/s1` |
-| 教师 | `emily.walker@example.com` | `/t1` |
+| Student | `ivy.lin@example.com`, `sophia.chen@example.com` | `/s1` |
+| Teacher | `emily.walker@example.com` | `/t1` |
 | Founder | `alex.hu@example.com` | `/f1` |
 
-也可以在登录页注册新的学生账号，从设定学习目标开始体验完整的入学流程。
+You can also register a new student account on the login page and go through the full intake flow, starting from setting a learning goal.
 
-**重置演示数据**：在 `backend` 目录运行 `.venv\Scripts\python manage.py load_demo_data --reset`。
+**Reset demo data**: in the `backend` directory, run `.venv\Scripts\python manage.py load_demo_data --reset`.
 
-## 更多说明
+## More information
 
-- [后端 README](backend/README.md)：配置、命令、架构、五个 agent 的工作方式、API、演示数据、测试和部署。
-- [前端 README](frontend/README.md)：运行方式、连接后端、离线演示模式、页面列表。
-- [Render 部署说明](docs/render-deployment.md)：单个 Web Service 同时提供前端与 API，连接持久化 PostgreSQL。
+- [Backend README](backend/README.md): configuration, commands, architecture, how the five agents work, API, demo data, tests and deployment.
+- [Frontend README](frontend/README.md): running it, connecting to the backend, offline demo mode, page list.
+- [Render deployment guide](docs/render-deployment.md): a single Web Service serves both the frontend and the API, connected to persistent PostgreSQL.
